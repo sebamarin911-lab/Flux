@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { fetchWeekEvents, createEvent } from '@/lib/calendar';
-import { Clock, MapPin, Plus, X, Calendar as CalendarIcon, Flame, Trophy } from 'lucide-react';
-import { format, parseISO, isToday, addDays, addHours, eachDayOfInterval, startOfWeek } from 'date-fns';
+import { fetchWeekEvents, createEvent, updateEvent, deleteEvent } from '@/lib/calendar';
+import { Clock, MapPin, Plus, X, Calendar as CalendarIcon, Flame, Trophy, Pencil, Trash2, CheckCircle2 } from 'lucide-react';
+import { format, parseISO, isToday, addDays, addHours, eachDayOfInterval, startOfWeek, startOfMinute, differenceInMinutes, addMinutes } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { startEventNotificationScheduler, stopEventNotificationScheduler } from '@/lib/notifications';
 
@@ -132,6 +132,45 @@ export function AgendaView() {
     }
   };
 
+  const handleDeleteEvent = async (id: string) => {
+    if (!confirm('¿Estás seguro de que quieres eliminar este evento?')) return;
+    try {
+      await deleteEvent(id);
+      loadEvents();
+    } catch (err) {
+      alert('Error al eliminar el evento');
+    }
+  };
+
+  const handleEditEvent = async (event: any) => {
+    const newTitle = prompt('Nuevo título:', event.summary);
+    const newTime = prompt('Nueva hora (HH:mm):', format(parseISO(event.start.dateTime || event.start.date), 'HH:mm'));
+    
+    if (newTitle === null || newTime === null) return;
+
+    try {
+      const baseDate = parseISO(event.start.dateTime || event.start.date);
+      const [hours, mins] = newTime.split(':').map(Number);
+      const newStart = startOfMinute(baseDate);
+      newStart.setHours(hours, mins);
+      
+      const duration = event.end?.dateTime 
+        ? differenceInMinutes(parseISO(event.end.dateTime), parseISO(event.start.dateTime))
+        : 60;
+      
+      const newEnd = addMinutes(newStart, duration);
+
+      await updateEvent(event.id, {
+        summary: newTitle,
+        startTime: newStart,
+        endTime: newEnd
+      });
+      loadEvents();
+    } catch (err) {
+      alert('Error al actualizar el evento. Asegúrate del formato HH:mm');
+    }
+  };
+
   // Group events by day
   const groupedEvents = events.reduce((acc: any, event: any) => {
     const dateStr = format(parseISO(event.start.dateTime || event.start.date), 'yyyy-MM-dd');
@@ -166,7 +205,7 @@ export function AgendaView() {
           >
             {isCompleted && <svg viewBox="0 0 14 14" fill="none" className="w-3.5 h-3.5"><path d="M3 7.5L5.5 10L11 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
           </button>
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <div className="flex justify-between items-start mb-1">
               <h3 className={`font-semibold ${isCompleted || isFaded ? 'text-surface-400 line-through' : 'text-surface-900 dark:text-surface-50'}`}>{event.summary}</h3>
               <span className={`text-xs font-medium px-2 py-1 rounded-md whitespace-nowrap ml-2 ${isCompleted || isFaded ? 'bg-surface-100 dark:bg-surface-800 text-surface-500' : 'bg-flux-50 dark:bg-flux-900/30 text-flux-600 dark:text-flux-400'}`}>
@@ -180,6 +219,30 @@ export function AgendaView() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="mt-4 pt-3 border-t border-surface-100 dark:border-surface-800 flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button 
+            onClick={() => handleEditEvent(event)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-surface-600 dark:text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800 rounded-lg transition-colors"
+          >
+            <Pencil className="w-3.5 h-3.5" /> Editar
+          </button>
+          <button 
+            onClick={() => handleDeleteEvent(event.id)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" /> Eliminar
+          </button>
+          {!isCompleted && (
+            <button 
+              onClick={() => toggleEventStatus(event.id)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-flux-500 text-white hover:bg-flux-600 rounded-lg transition-colors shadow-sm"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" /> Completar
+            </button>
+          )}
         </div>
       </div>
     );

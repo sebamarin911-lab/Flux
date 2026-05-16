@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { fetchWeekEvents } from '@/lib/calendar';
+import { fetchWeekEvents, updateEvent, deleteEvent } from '@/lib/calendar';
 import { supabase } from '@/lib/supabase';
 import { Link, useNavigate } from 'react-router-dom';
-import { Calendar, Activity, Flame, Trophy, ArrowRight, Clock, MapPin, Zap, Brain, TrendingUp, Sun, Moon, AlertCircle } from 'lucide-react';
-import { format, parseISO, isToday, isBefore, startOfWeek, differenceInMinutes } from 'date-fns';
+import { Calendar, Activity, Flame, Trophy, ArrowRight, Clock, MapPin, Zap, Brain, TrendingUp, Sun, Moon, AlertCircle, Pencil, Trash2, CheckCircle2 } from 'lucide-react';
+import { format, parseISO, isToday, isBefore, startOfWeek, differenceInMinutes, addMinutes, startOfMinute } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 export function DashboardView() {
@@ -79,6 +79,54 @@ export function DashboardView() {
       setLoading(false);
     }
   }
+
+  const handleDeleteEvent = async (id: string) => {
+    if (!confirm('¿Estás seguro de que quieres eliminar este evento?')) return;
+    try {
+      await deleteEvent(id);
+      loadDashboard();
+    } catch (err) {
+      alert('Error al eliminar el evento');
+    }
+  };
+
+  const handleEditEvent = async (event: any) => {
+    const newTitle = prompt('Nuevo título:', event.summary);
+    const newTime = prompt('Nueva hora (HH:mm):', format(parseISO(event.start.dateTime || event.start.date), 'HH:mm'));
+    
+    if (newTitle === null || newTime === null) return;
+
+    try {
+      const baseDate = parseISO(event.start.dateTime || event.start.date);
+      const [hours, mins] = newTime.split(':').map(Number);
+      const newStart = startOfMinute(baseDate);
+      newStart.setHours(hours, mins);
+      
+      const duration = event.end?.dateTime 
+        ? differenceInMinutes(parseISO(event.end.dateTime), parseISO(event.start.dateTime))
+        : 60;
+      
+      const newEnd = addMinutes(newStart, duration);
+
+      await updateEvent(event.id, {
+        summary: newTitle,
+        startTime: newStart,
+        endTime: newEnd
+      });
+      loadDashboard();
+    } catch (err) {
+      alert('Error al actualizar el evento. Asegúrate del formato HH:mm');
+    }
+  };
+
+  const toggleEventComplete = (id: string) => {
+    const saved = localStorage.getItem('flux_event_status');
+    const eventStatus: Record<string, boolean> = saved ? JSON.parse(saved) : {};
+    eventStatus[id] = !eventStatus[id];
+    localStorage.setItem('flux_event_status', JSON.stringify(eventStatus));
+    // Trigger re-render by reloading dashboard or local state
+    loadDashboard();
+  };
 
   // Greeting based on time of day
   const greeting = useMemo(() => {
@@ -305,16 +353,20 @@ export function DashboardView() {
                 const end = event.end.dateTime;
                 const isNow = start && new Date(start) <= new Date() && new Date(end) > new Date();
                 
+                const saved = localStorage.getItem('flux_event_status');
+                const eventStatus: Record<string, boolean> = saved ? JSON.parse(saved) : {};
+                const isCompleted = eventStatus[event.id];
+
                 return (
                   <div 
                     key={event.id}
-                    className={`flex items-center gap-4 p-3.5 rounded-xl border transition-all ${
+                    className={`flex items-center gap-4 p-3.5 rounded-xl border transition-all group ${
                       isNow 
                         ? 'border-flux-500/50 bg-flux-50/50 dark:bg-flux-900/20 shadow-sm' 
                         : 'border-surface-100 dark:border-surface-800 hover:bg-surface-50 dark:hover:bg-surface-900/50'
-                    }`}
+                    } ${isCompleted ? 'opacity-60 bg-surface-50/50 grayscale-[0.5]' : ''}`}
                   >
-                    <div className={`w-1 self-stretch rounded-full ${isNow ? 'bg-flux-500 animate-pulse' : 'bg-surface-200 dark:bg-surface-700'}`}></div>
+                    <div className={`w-1 self-stretch rounded-full ${isNow ? 'bg-flux-500 animate-pulse' : isCompleted ? 'bg-green-500' : 'bg-surface-200 dark:bg-surface-700'}`}></div>
                     <div className="flex-shrink-0 text-center min-w-[3rem]">
                       {start ? (
                         <>
@@ -328,7 +380,7 @@ export function DashboardView() {
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className={`font-medium truncate ${isNow ? 'text-flux-700 dark:text-flux-300' : 'text-surface-900 dark:text-surface-100'}`}>
+                      <p className={`font-medium truncate ${isNow ? 'text-flux-700 dark:text-flux-300' : 'text-surface-900 dark:text-surface-100'} ${isCompleted ? 'line-through text-surface-400' : ''}`}>
                         {event.summary}
                       </p>
                       {event.location && (
@@ -337,7 +389,32 @@ export function DashboardView() {
                         </p>
                       )}
                     </div>
-                    {isNow && (
+                    
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                        onClick={() => toggleEventComplete(event.id)}
+                        className={`p-2 rounded-lg transition-colors ${isCompleted ? 'text-green-600 bg-green-50 dark:bg-green-900/30' : 'text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800'}`}
+                        title="Completar"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                      </button>
+                      <button 
+                        onClick={() => handleEditEvent(event)}
+                        className="p-2 text-surface-400 hover:text-flux-600 hover:bg-flux-50 dark:hover:bg-flux-900/30 rounded-lg transition-colors"
+                        title="Editar"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteEvent(event.id)}
+                        className="p-2 text-surface-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                        title="Eliminar"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {isNow && !isCompleted && (
                       <span className="flex-shrink-0 text-[10px] font-bold uppercase tracking-wider bg-flux-500 text-white px-2 py-1 rounded-md">
                         Ahora
                       </span>

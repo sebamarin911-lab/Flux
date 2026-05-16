@@ -71,3 +71,56 @@ export async function createEvent(summary: string, startTime: Date, endTime: Dat
 
   return await response.json();
 }
+
+export async function updateEvent(eventId: string, updates: { summary?: string, startTime?: Date, endTime?: Date }) {
+  const providerToken = localStorage.getItem('google_provider_token');
+  if (!providerToken) {
+    throw new Error('Please sign in with Google again to connect your Calendar.');
+  }
+
+  const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`;
+  
+  const event: any = {};
+  if (updates.summary) event.summary = updates.summary;
+  if (updates.startTime) event.start = { dateTime: updates.startTime.toISOString() };
+  if (updates.endTime) event.end = { dateTime: updates.endTime.toISOString() };
+
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${providerToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(event),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    console.error('Google Calendar Update Error:', errorData);
+    throw new Error('Failed to update event in Google Calendar');
+  }
+
+  return await response.json();
+}
+
+export async function deleteEvent(eventId: string) {
+  const providerToken = localStorage.getItem('google_provider_token');
+  if (!providerToken) {
+    throw new Error('Please sign in with Google again to connect your Calendar.');
+  }
+
+  const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`;
+
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${providerToken}`,
+    },
+  });
+
+  if (!response.ok && response.status !== 204) {
+    throw new Error('Failed to delete event from Google Calendar');
+  }
+
+  return true;
+}

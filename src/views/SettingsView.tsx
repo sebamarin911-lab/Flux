@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Bell, BellOff, Clock, Brain } from 'lucide-react';
+import { Bell, BellOff, Clock, Brain, Smartphone } from 'lucide-react';
 import { 
   getNotificationStatus, 
   requestNotificationPermission,
   scheduleNightlyReminder 
 } from '@/lib/notifications';
+import { subscribeToPush, unsubscribeFromPush, isPushSubscribed } from '@/lib/pushSubscription';
 
 export function SettingsView() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -13,6 +14,8 @@ export function SettingsView() {
   const [nightlyEnabled, setNightlyEnabled] = useState(() => {
     return localStorage.getItem('flux_nightly_reminder') !== 'false';
   });
+  const [pushSubscribed, setPushSubscribed] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
 
   useEffect(() => {
     async function loadUser() {
@@ -22,6 +25,8 @@ export function SettingsView() {
       }
     }
     loadUser();
+    // Check push subscription status
+    isPushSubscribed().then(setPushSubscribed);
   }, []);
 
   const handleEnableNotifications = async () => {
@@ -38,6 +43,23 @@ export function SettingsView() {
     localStorage.setItem('flux_nightly_reminder', newVal.toString());
     if (newVal) {
       scheduleNightlyReminder();
+    }
+  };
+
+  const togglePushSubscription = async () => {
+    setPushLoading(true);
+    try {
+      if (pushSubscribed) {
+        await unsubscribeFromPush();
+        setPushSubscribed(false);
+      } else {
+        const success = await subscribeToPush();
+        setPushSubscribed(success);
+      }
+    } catch (err) {
+      console.error('Error toggling push:', err);
+    } finally {
+      setPushLoading(false);
     }
   };
 
@@ -116,6 +138,33 @@ export function SettingsView() {
                   <span className="text-sm font-medium text-green-600 dark:text-green-400">Activo</span>
                 </div>
               )}
+            </div>
+
+            {/* Push Subscription (Service Worker) */}
+            <div className="flex items-center justify-between p-4 bg-surface-50 dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800">
+              <div className="flex items-center gap-3">
+                <Smartphone className="w-5 h-5 text-flux-500" />
+                <div>
+                  <p className="font-medium">Notificaciones en Pantalla de Bloqueo</p>
+                  <p className="text-sm text-surface-500">
+                    {pushSubscribed 
+                      ? 'Recibirás notificaciones incluso con la app cerrada' 
+                      : 'Activa para recibir notificaciones en tu pantalla de bloqueo'
+                    }
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={togglePushSubscription}
+                disabled={notifStatus !== 'granted' || pushLoading}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  pushSubscribed ? 'bg-flux-500' : 'bg-surface-300 dark:bg-surface-600'
+                } ${notifStatus !== 'granted' || pushLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
+                  pushSubscribed ? 'translate-x-6' : 'translate-x-1'
+                }`} />
+              </button>
             </div>
 
             {/* Event Reminders */}

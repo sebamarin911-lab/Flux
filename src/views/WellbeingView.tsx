@@ -16,6 +16,7 @@ export function WellbeingView() {
     nutrition: false
   });
   
+  const [todayLogs, setTodayLogs] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [historicalData, setHistoricalData] = useState<any[]>([]);
@@ -59,7 +60,11 @@ export function WellbeingView() {
 
     if (data) {
       setMentalScore(data.mental_score);
-      if (data.notas) setNotes(data.notas);
+      if (data.notas) {
+        // Split by our separator or just store as is
+        const logs = data.notas.split('\n---\n').filter(Boolean);
+        setTodayLogs(logs);
+      }
     }
   }
 
@@ -77,6 +82,11 @@ export function WellbeingView() {
     const today = format(new Date(), 'yyyy-MM-dd');
     
     // UPSERT log for today
+    const existingNotes = todayLogs.join('\n---\n');
+    const newNotes = existingNotes 
+      ? `${existingNotes}\n---\n${notes}`
+      : notes;
+
     const { error } = await supabase
       .from('wellbeing_logs')
       .upsert({ 
@@ -84,13 +94,14 @@ export function WellbeingView() {
         semana: today, 
         mental_score: mentalScore, 
         fisico_score: Object.values(habits).filter(Boolean).length + 1, 
-        notas: notes 
+        notas: newNotes 
       }, { onConflict: 'user_id,semana' });
 
     if (!error) {
       await loadHistoricalData();
+      setTodayLogs(prev => [...prev, notes]);
+      setNotes('');
       setSaveMessage({ type: 'success', text: '✅ Reflexión guardada correctamente' });
-      // No clear form — keep the data visible so user can see/edit today's entry
     } else {
       console.error('Error guardando reflexión:', error);
       setSaveMessage({ type: 'error', text: `❌ Error al guardar: ${error.message}` });
@@ -187,6 +198,20 @@ export function WellbeingView() {
                   className="w-full bg-surface-50 dark:bg-surface-900/50 border border-surface-200 dark:border-surface-700 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-flux-500 resize-none shadow-inner text-surface-900 dark:text-surface-100 placeholder:text-surface-400 dark:placeholder:text-surface-500"
                 />
               </div>
+
+              {/* Display Today's Reflections */}
+              {todayLogs.length > 0 && (
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-surface-400 uppercase tracking-wider">Reflexiones de hoy</p>
+                  <div className="space-y-2">
+                    {todayLogs.map((log, i) => (
+                      <div key={i} className="p-3 bg-surface-50 dark:bg-surface-900 rounded-xl border border-surface-100 dark:border-surface-800 text-sm text-surface-700 dark:text-surface-300 italic">
+                        "{log}"
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <button 
                 type="submit"

@@ -9,6 +9,7 @@ import { WeeklyReportView } from '@/views/WeeklyReportView';
 import { SettingsView } from '@/views/SettingsView';
 import { LoginView } from '@/views/LoginView';
 import { requestNotificationPermission, scheduleNightlyReminder } from '@/lib/notifications';
+import { subscribeToPush } from '@/lib/pushSubscription';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -41,6 +42,8 @@ export default function App() {
       requestNotificationPermission().then((granted) => {
         if (granted) {
           scheduleNightlyReminder();
+          // Subscribe to real push notifications (Service Worker + Push API)
+          subscribeToPush();
         }
       });
     }
