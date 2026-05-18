@@ -13,6 +13,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return saved === 'true';
   });
 
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'flux_receso_universitario') {
+        setRecesoUniversitarioState(e.newValue === 'true');
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    const saved = localStorage.getItem('flux_receso_universitario');
+    if (saved === 'true' && !recesoUniversitario) {
+      setRecesoUniversitarioState(true);
+    }
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
   const setRecesoUniversitario = (value: boolean) => {
     setRecesoUniversitarioState(value);
     localStorage.setItem('flux_receso_universitario', value.toString());

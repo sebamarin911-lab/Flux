@@ -5,8 +5,10 @@ import { TrendingUp, Calendar, CheckCircle2, Brain, Flame, Trophy, BarChart3 } f
 import { format, parseISO, startOfWeek, endOfWeek, eachDayOfInterval, isWithinInterval } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { useAppContext } from '@/context/AppContext';
 
 export function WeeklyReportView() {
+  const { recesoUniversitario } = useAppContext();
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [wellbeingData, setWellbeingData] = useState<any[]>([]);
@@ -57,11 +59,22 @@ export function WeeklyReportView() {
 
   // Filter events for this week only
   const weekEvents = useMemo(() => {
-    return events.filter(e => {
+    let filtered = events.filter(e => {
       const d = parseISO(e.start.dateTime || e.start.date);
       return isWithinInterval(d, { start: weekStart, end: weekEnd });
     });
-  }, [events]);
+
+    if (recesoUniversitario) {
+      filtered = filtered.filter((e: any) => {
+        const locationEmpty = !e.location || e.location.trim() === '';
+        const summary = (e.summary || '').toLowerCase();
+        const hasAcademicKeyword = /clase|taller|laboratorio|cátedra|catedra|ayudantía|ayudantia|prueba|certamen|examen|universidad/i.test(summary);
+        return !(locationEmpty || hasAcademicKeyword);
+      });
+    }
+
+    return filtered;
+  }, [events, recesoUniversitario]);
 
   // Group by day
   const eventsByDay = useMemo(() => {

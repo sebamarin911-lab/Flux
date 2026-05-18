@@ -12,7 +12,12 @@ export function AgendaView() {
   
   const events = useMemo(() => {
     if (!recesoUniversitario) return rawEvents;
-    return rawEvents.filter((e: any) => !e.location);
+    return rawEvents.filter((e: any) => {
+      const locationEmpty = !e.location || e.location.trim() === '';
+      const summary = (e.summary || '').toLowerCase();
+      const hasAcademicKeyword = /clase|taller|laboratorio|cátedra|catedra|ayudantía|ayudantia|prueba|certamen|examen|universidad/i.test(summary);
+      return !(locationEmpty || hasAcademicKeyword);
+    });
   }, [rawEvents, recesoUniversitario]);
   
   const [loading, setLoading] = useState(true);
