@@ -4,20 +4,26 @@ import { Bell, BellOff, Clock, Brain, Smartphone } from 'lucide-react';
 import { 
   getNotificationStatus, 
   requestNotificationPermission,
-  scheduleNightlyReminder 
+  scheduleMorningBrief 
 } from '@/lib/notifications';
 import { subscribeToPush, unsubscribeFromPush, isPushSubscribed } from '@/lib/pushSubscription';
 import { useAppContext } from '@/context/AppContext';
+
+import { getFlowRecovery } from '@/lib/gemini';
 
 export function SettingsView() {
   const { recesoUniversitario, setRecesoUniversitario } = useAppContext();
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [notifStatus, setNotifStatus] = useState(getNotificationStatus());
-  const [nightlyEnabled, setNightlyEnabled] = useState(() => {
-    return localStorage.getItem('flux_nightly_reminder') !== 'false';
+  const [morningEnabled, setMorningEnabled] = useState(() => {
+    return localStorage.getItem('flux_morning_brief') !== 'false';
   });
   const [pushSubscribed, setPushSubscribed] = useState(false);
   const [pushLoading, setPushLoading] = useState(false);
+  const [flowHabits, setFlowHabits] = useState<any[] | null>(() => {
+    const s = localStorage.getItem('ai_flow_habits');
+    return s ? JSON.parse(s) : null;
+  });
 
   useEffect(() => {
     async function loadUser() {
@@ -31,20 +37,38 @@ export function SettingsView() {
     isPushSubscribed().then(setPushSubscribed);
   }, []);
 
+  const handleToggleReceso = async (val: boolean) => {
+    setRecesoUniversitario(val);
+    if (val) {
+      // AI Flow Recovery trigger on receso activation
+      try {
+        const daysSince = Number(localStorage.getItem('flux_streak') || 0);
+        const lastMood = Number(localStorage.getItem('flux_last_mood') || 3);
+        const result = await getFlowRecovery({ status: 'receso', days_off: daysSince, last_mood: lastMood });
+        if (result?.habits) {
+          localStorage.setItem('ai_flow_habits', JSON.stringify(result.habits));
+          setFlowHabits(result.habits);
+        }
+      } catch (e) {
+        console.warn('[AI] Flow recovery trigger failed silently', e);
+      }
+    }
+  };
+
   const handleEnableNotifications = async () => {
     const granted = await requestNotificationPermission();
     setNotifStatus(granted ? 'granted' : 'denied');
     if (granted) {
-      scheduleNightlyReminder();
+      scheduleMorningBrief();
     }
   };
 
-  const toggleNightly = () => {
-    const newVal = !nightlyEnabled;
-    setNightlyEnabled(newVal);
-    localStorage.setItem('flux_nightly_reminder', newVal.toString());
+  const toggleMorning = () => {
+    const newVal = !morningEnabled;
+    setMorningEnabled(newVal);
+    localStorage.setItem('flux_morning_brief', newVal.toString());
     if (newVal) {
-      scheduleNightlyReminder();
+      scheduleMorningBrief();
     }
   };
 
@@ -76,28 +100,51 @@ export function SettingsView() {
         {/* Global Config */}
         <div className="bg-white dark:bg-surface-950 p-6 rounded-2xl border border-surface-100 dark:border-surface-800 shadow-sm">
           <h2 className="text-xl font-semibold mb-4">Configuración Global</h2>
-          <div className="flex items-center justify-between p-4 bg-surface-50 dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
-                <span className="text-xl">🌴</span>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-4 bg-surface-50 dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+                  <span className="text-xl">🌴</span>
+                </div>
+                <div>
+                  <p className="font-medium">Receso Universitario</p>
+                  <p className="text-sm text-surface-500">
+                    Ocultar clases y pausar progreso académico de la agenda.
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="font-medium">Receso Universitario</p>
-                <p className="text-sm text-surface-500">
-                  Ocultar clases y pausar progreso académico de la agenda.
-                </p>
-              </div>
+              <button
+                onClick={() => handleToggleReceso(!recesoUniversitario)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
+                  recesoUniversitario ? 'bg-flux-500' : 'bg-surface-300 dark:bg-surface-600'
+                }`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
+                  recesoUniversitario ? 'translate-x-6' : 'translate-x-1'
+                }`} />
+              </button>
             </div>
-            <button
-              onClick={() => setRecesoUniversitario(!recesoUniversitario)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
-                recesoUniversitario ? 'bg-flux-500' : 'bg-surface-300 dark:bg-surface-600'
-              }`}
-            >
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
-                recesoUniversitario ? 'translate-x-6' : 'translate-x-1'
-              }`} />
-            </button>
+
+            {/* AI Flow Recovery Habits (shown when receso is ON) */}
+            {recesoUniversitario && flowHabits && flowHabits.length > 0 && (
+              <div className="p-4 bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 rounded-xl">
+                <p className="text-sm font-semibold text-purple-700 dark:text-purple-300 mb-3 flex items-center gap-2">
+                  <span>🤖</span> Micro-hábitos IA para mantenerte en ritmo
+                </p>
+                <div className="space-y-2">
+                  {flowHabits.map((h: any, i: number) => (
+                    <div key={i} className="flex items-start gap-2 text-sm">
+                      <span className="text-purple-500 font-bold mt-0.5">•</span>
+                      <div>
+                        <span className="font-medium text-surface-800 dark:text-surface-200">{h.title}</span>
+                        <span className="text-surface-500"> ({h.duration}) — </span>
+                        <span className="text-surface-500 text-xs">{h.why}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -211,24 +258,24 @@ export function SettingsView() {
               </span>
             </div>
 
-            {/* Nightly Reminder */}
+            {/* Morning Brief */}
             <div className="flex items-center justify-between p-4 bg-surface-50 dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800">
               <div className="flex items-center gap-3">
                 <Brain className="w-5 h-5 text-purple-500" />
                 <div>
-                  <p className="font-medium">Recordatorio Nocturno</p>
-                  <p className="text-sm text-surface-500">Descarga mental a las 21:00</p>
+                  <p className="font-medium">Brief Matutino</p>
+                  <p className="text-sm text-surface-500">Resumen y motivación a las 07:30</p>
                 </div>
               </div>
               <button
-                onClick={toggleNightly}
+                onClick={toggleMorning}
                 disabled={notifStatus !== 'granted'}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  nightlyEnabled && notifStatus === 'granted' ? 'bg-flux-500' : 'bg-surface-300 dark:bg-surface-600'
+                  morningEnabled && notifStatus === 'granted' ? 'bg-flux-500' : 'bg-surface-300 dark:bg-surface-600'
                 } ${notifStatus !== 'granted' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
               >
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
-                  nightlyEnabled && notifStatus === 'granted' ? 'translate-x-6' : 'translate-x-1'
+                  morningEnabled && notifStatus === 'granted' ? 'translate-x-6' : 'translate-x-1'
                 }`} />
               </button>
             </div>

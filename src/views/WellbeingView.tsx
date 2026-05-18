@@ -96,6 +96,40 @@ export function WellbeingView() {
       setNotes('');
       setMentalScore(null);
       setSaveMessage({ type: 'success', text: '✅ Reflexión guardada correctamente' });
+
+      // AI TRIGGERS (Background)
+      const currentNotes = notes.trim();
+      if (currentNotes) {
+        import('@/lib/gemini').then(({ getAutoTags }) => {
+          getAutoTags({ note: currentNotes }).then(async (aiData) => {
+            if (!aiData?.tags) return;
+            const updatedText = `${currentNotes}\n[IA] Etiquetas: ${aiData.tags.join(', ')} | Tema: ${aiData.primary_theme}`;
+            
+            const updatedExisting = existingNotes ? `${existingNotes}\n---\n${updatedText}` : updatedText;
+            await supabase.from('wellbeing_logs').upsert({
+              user_id: userData.user.id, semana: today, mental_score: mentalScore, notas: updatedExisting
+            }, { onConflict: 'user_id,semana' });
+            loadTodayEntry(); // refresh to show tags
+          });
+        });
+      }
+
+      // Dominical Weekly Summary
+      if (new Date().getDay() === 0) {
+        import('@/lib/gemini').then(({ getWeeklySummary }) => {
+          getWeeklySummary({ 
+            sliders: { mental: mentalScore, fisico: 3 }, // using 3 as default fisico 
+            notes: currentNotes, 
+            streak: Number(localStorage.getItem('flux_streak') || 0) 
+          }).then(summary => {
+            if (summary) {
+              localStorage.setItem('ai_weekly_summary', JSON.stringify(summary));
+              window.dispatchEvent(new Event('flux_ai_summary_updated'));
+            }
+          });
+        });
+      }
+
     } else {
       console.error('Error guardando reflexión:', error);
       setSaveMessage({ type: 'error', text: `❌ Error al guardar: ${error.message}` });
@@ -209,9 +243,24 @@ export function WellbeingView() {
           <div className="bg-gradient-to-br from-surface-800 to-surface-950 dark:from-surface-900 dark:to-black text-white p-6 rounded-3xl shadow-lg relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-flux-500 rounded-full blur-[80px] opacity-30"></div>
             <h2 className="text-xl font-semibold mb-2 relative z-10">Tu Paz Mental</h2>
-            <p className="text-surface-300 text-sm mb-6 relative z-10 leading-relaxed">
-              La verdadera productividad no es hacer más, es hacer lo correcto con la mente clara. Protege tu energía.
-            </p>
+            {(() => {
+              const summaryStr = localStorage.getItem('ai_weekly_summary');
+              const summary = summaryStr ? JSON.parse(summaryStr) : null;
+              if (summary) {
+                return (
+                  <div className="relative z-10 mb-6 bg-white/10 rounded-xl p-3 border border-white/20">
+                    <p className="text-sm font-medium text-flux-200 mb-1">Tendencia: {summary.trend === 'up' ? '↗️ Al alza' : summary.trend === 'down' ? '↘️ A la baja' : '➡️ Estable'}</p>
+                    <p className="text-xs text-surface-200 mb-2">💡 {summary.micro_tip}</p>
+                    <p className="text-xs text-surface-300">🎯 Próximo foco: {summary.next_focus}</p>
+                  </div>
+                );
+              }
+              return (
+                <p className="text-surface-300 text-sm mb-6 relative z-10 leading-relaxed">
+                  La verdadera productividad no es hacer más, es hacer lo correcto con la mente clara. Protege tu energía.
+                </p>
+              );
+            })()}
             
             <div className="bg-white/10 backdrop-blur-md rounded-2xl p-4 border border-white/10 relative z-10">
               <div className="flex items-center justify-between mb-2">

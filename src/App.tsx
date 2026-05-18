@@ -8,7 +8,7 @@ import { WellbeingView } from '@/views/WellbeingView';
 import { WeeklyReportView } from '@/views/WeeklyReportView';
 import { SettingsView } from '@/views/SettingsView';
 import { LoginView } from '@/views/LoginView';
-import { requestNotificationPermission, scheduleNightlyReminder } from '@/lib/notifications';
+import { requestNotificationPermission, scheduleMorningBrief, startEventNotificationScheduler } from '@/lib/notifications';
 import { subscribeToPush } from '@/lib/pushSubscription';
 import { AppProvider } from '@/context/AppContext';
 
@@ -42,7 +42,7 @@ export default function App() {
     if (session) {
       requestNotificationPermission().then((granted) => {
         if (granted) {
-          scheduleNightlyReminder();
+          scheduleMorningBrief();
           // Subscribe to real push notifications (Service Worker + Push API)
           subscribeToPush();
         }

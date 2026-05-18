@@ -86,61 +86,65 @@ export function stopEventNotificationScheduler() {
   }
 }
 
-// Schedule nightly reminder for mental download
-let nightlyTimeout: ReturnType<typeof setTimeout> | null = null;
+// Schedule morning brief
+let morningTimeout: ReturnType<typeof setTimeout> | null = null;
 
-export function scheduleNightlyReminder() {
-  if (nightlyTimeout) clearTimeout(nightlyTimeout);
+export function scheduleMorningBrief() {
+  if (morningTimeout) clearTimeout(morningTimeout);
 
   const now = new Date();
   const reminderTime = new Date();
-  reminderTime.setHours(21, 0, 0, 0); // 9:00 PM
+  reminderTime.setHours(7, 30, 0, 0); // 07:30 AM
 
   if (now > reminderTime) {
-    // Already past 9 PM, schedule for tomorrow
+    // Already past 7:30 AM, schedule for tomorrow
     reminderTime.setDate(reminderTime.getDate() + 1);
   }
 
   const msUntilReminder = reminderTime.getTime() - now.getTime();
 
-  nightlyTimeout = setTimeout(async () => {
+  morningTimeout = setTimeout(async () => {
     try {
-      // Lazy load to avoid circular dependencies
       const { fetchWeekEvents } = await import('./calendar');
-      const { getNightlySummary } = await import('./gemini');
+      const { getMorningBrief } = await import('./gemini');
       const { startOfDay, addDays } = await import('date-fns');
 
-      let tomorrowEvents: any[] = [];
+      let todayEvents: any[] = [];
       try {
         const events = await fetchWeekEvents();
+        const today = startOfDay(new Date());
         const tomorrow = startOfDay(addDays(new Date(), 1));
-        const dayAfter = startOfDay(addDays(new Date(), 2));
-        tomorrowEvents = events.filter((e: any) => {
+        todayEvents = events.filter((e: any) => {
           const d = new Date(e.start.dateTime || e.start.date);
-          return d >= tomorrow && d < dayAfter;
+          return d >= today && d < tomorrow;
         });
       } catch (e) {
         console.warn('Could not fetch events for AI summary', e);
       }
 
-      const summary = await getNightlySummary(tomorrowEvents);
+      // Hash prompt will be calculated inside callGemini
+      const summary = await getMorningBrief({
+        events: todayEvents.map(e => e.summary),
+        streak: Number(localStorage.getItem('flux_streak') || 0),
+        last_mood: Number(localStorage.getItem('flux_last_mood') || 3)
+      });
 
-      sendNotification(summary.title, {
-        body: summary.body,
-        tag: 'nightly-reminder',
-        data: { url: summary.actionUrl }
+      sendNotification('🌞 Buenos días', {
+        body: summary.notification,
+        tag: 'morning-brief',
+        data: { url: '/dashboard' }
       });
     } catch (err) {
-      console.error('Error triggering AI nightly reminder:', err);
+      console.error('Error triggering AI morning brief:', err);
       // Fallback
-      sendNotification('🧠 Descarga Mental', {
-        body: 'Tómate unos minutos para reflexionar sobre tu día y descargar lo que tienes en mente.',
-        tag: 'nightly-reminder',
-        data: { url: '/wellbeing' }
+      sendNotification('🌞 Buenos días', {
+        body: 'Comienza tu día revisando tu agenda en Flux.',
+        tag: 'morning-brief',
+        data: { url: '/dashboard' }
       });
     }
 
     // Reschedule for tomorrow
-    scheduleNightlyReminder();
+    scheduleMorningBrief();
   }, msUntilReminder);
 }

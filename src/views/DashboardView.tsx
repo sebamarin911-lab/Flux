@@ -95,8 +95,23 @@ export function DashboardView() {
   const handleDeleteEvent = async (id: string) => {
     if (!confirm('¿Estás seguro de que quieres eliminar este evento?')) return;
     try {
+      const eventToDelete = events.find(e => e.id === id);
       await deleteEvent(id);
       loadDashboard();
+      
+      if (eventToDelete) {
+        import('@/lib/gemini').then(({ getRescheduleSuggestion }) => {
+          getRescheduleSuggestion({ 
+            current: eventToDelete.summary, 
+            history: [] // Mock history for now
+          }).then(suggestion => {
+            if (suggestion && confirm(`[IA] ¿Quieres reagendar "${eventToDelete.summary}" a las ${suggestion.suggested_time}? Razón: ${suggestion.reason}`)) {
+              // Simply open Agenda for now as requested by user constraints to not build complex new UI flows
+              navigate('/agenda');
+            }
+          });
+        });
+      }
     } catch (err) {
       alert('Error al eliminar el evento');
     }
