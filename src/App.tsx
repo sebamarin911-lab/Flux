@@ -10,6 +10,7 @@ import { SettingsView } from '@/views/SettingsView';
 import { LoginView } from '@/views/LoginView';
 import { requestNotificationPermission, scheduleNightlyReminder } from '@/lib/notifications';
 import { subscribeToPush } from '@/lib/pushSubscription';
+import { AppProvider } from '@/context/AppContext';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -62,17 +63,19 @@ export default function App() {
   }
 
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route element={<AppLayout />}>
-          <Route path="/" element={<DashboardView />} />
-          <Route path="/agenda" element={<AgendaView />} />
-          <Route path="/wellbeing" element={<WellbeingView />} />
-          <Route path="/report" element={<WeeklyReportView />} />
-          <Route path="/settings" element={<SettingsView />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <AppProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route element={<AppLayout />}>
+            <Route path="/" element={<DashboardView />} />
+            <Route path="/agenda" element={<AgendaView />} />
+            <Route path="/wellbeing" element={<WellbeingView />} />
+            <Route path="/report" element={<WeeklyReportView />} />
+            <Route path="/settings" element={<SettingsView />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </AppProvider>
   );
 }

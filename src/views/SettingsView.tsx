@@ -7,8 +7,10 @@ import {
   scheduleNightlyReminder 
 } from '@/lib/notifications';
 import { subscribeToPush, unsubscribeFromPush, isPushSubscribed } from '@/lib/pushSubscription';
+import { useAppContext } from '@/context/AppContext';
 
 export function SettingsView() {
+  const { recesoUniversitario, setRecesoUniversitario } = useAppContext();
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [notifStatus, setNotifStatus] = useState(getNotificationStatus());
   const [nightlyEnabled, setNightlyEnabled] = useState(() => {
@@ -71,6 +73,34 @@ export function SettingsView() {
       </div>
 
       <div className="space-y-6">
+        {/* Global Config */}
+        <div className="bg-white dark:bg-surface-950 p-6 rounded-2xl border border-surface-100 dark:border-surface-800 shadow-sm">
+          <h2 className="text-xl font-semibold mb-4">Configuración Global</h2>
+          <div className="flex items-center justify-between p-4 bg-surface-50 dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+                <span className="text-xl">🌴</span>
+              </div>
+              <div>
+                <p className="font-medium">Receso Universitario</p>
+                <p className="text-sm text-surface-500">
+                  Ocultar clases y pausar progreso académico de la agenda.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setRecesoUniversitario(!recesoUniversitario)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
+                recesoUniversitario ? 'bg-flux-500' : 'bg-surface-300 dark:bg-surface-600'
+              }`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
+                recesoUniversitario ? 'translate-x-6' : 'translate-x-1'
+              }`} />
+            </button>
+          </div>
+        </div>
+
         {/* Google Account */}
         <div className="bg-white dark:bg-surface-950 p-6 rounded-2xl border border-surface-100 dark:border-surface-800 shadow-sm">
           <h2 className="text-xl font-semibold mb-4">Integraciones</h2>

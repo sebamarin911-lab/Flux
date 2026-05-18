@@ -8,14 +8,6 @@ export function WellbeingView() {
   const [mentalScore, setMentalScore] = useState<number | null>(null);
   const [notes, setNotes] = useState('');
   
-  // Habits state
-  const [habits, setHabits] = useState({
-    sleep: false,
-    reflection: false,
-    move: false,
-    nutrition: false
-  });
-  
   const [todayLogs, setTodayLogs] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -83,9 +75,9 @@ export function WellbeingView() {
     
     // UPSERT log for today
     const existingNotes = todayLogs.join('\n---\n');
-    const newNotes = existingNotes 
+    const newNotes = existingNotes && notes
       ? `${existingNotes}\n---\n${notes}`
-      : notes;
+      : notes || existingNotes;
 
     const { error } = await supabase
       .from('wellbeing_logs')
@@ -93,14 +85,16 @@ export function WellbeingView() {
         user_id: userData.user.id, 
         semana: today, 
         mental_score: mentalScore, 
-        fisico_score: Object.values(habits).filter(Boolean).length + 1, 
         notas: newNotes 
       }, { onConflict: 'user_id,semana' });
 
     if (!error) {
       await loadHistoricalData();
-      setTodayLogs(prev => [...prev, notes]);
+      if (notes.trim()) {
+        setTodayLogs(prev => [...prev, notes.trim()]);
+      }
       setNotes('');
+      setMentalScore(null);
       setSaveMessage({ type: 'success', text: '✅ Reflexión guardada correctamente' });
     } else {
       console.error('Error guardando reflexión:', error);
@@ -147,12 +141,12 @@ export function WellbeingView() {
                       onClick={() => setMentalScore(mood.score)}
                       className={`flex flex-col items-center justify-center py-4 rounded-2xl border transition-all ${
                         mentalScore === mood.score 
-                          ? 'border-flux-500 bg-flux-50 dark:bg-flux-900/40 shadow-md ring-2 ring-flux-500/30' 
-                          : 'border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-900/50 hover:bg-surface-100 dark:hover:bg-surface-800'
+                          ? 'border-flux-600 bg-flux-100 dark:bg-flux-900/60 shadow-md ring-2 ring-flux-500/40' 
+                          : 'border-surface-300 dark:border-surface-600 bg-surface-50 dark:bg-surface-800 hover:bg-surface-200 dark:hover:bg-surface-700'
                       }`}
                     >
                       <span className="text-3xl mb-2 drop-shadow-sm">{mood.emoji}</span>
-                      <span className={`text-xs font-medium ${mentalScore === mood.score ? 'text-flux-700 dark:text-flux-400' : 'text-surface-600 dark:text-surface-400'}`}>
+                      <span className={`text-sm font-semibold ${mentalScore === mood.score ? 'text-flux-900 dark:text-flux-100' : 'text-surface-900 dark:text-surface-100'}`}>
                         {mood.label}
                       </span>
                     </button>
@@ -160,30 +154,7 @@ export function WellbeingView() {
                 </div>
               </div>
 
-              {/* Non-negotiable Habits */}
-              <div>
-                <label className="block text-sm font-medium mb-3 text-surface-700 dark:text-surface-300">
-                  Hábitos no negociables
-                </label>
-                <div className="space-y-3">
-                  <label className={`flex items-center gap-3 p-4 rounded-xl border cursor-pointer transition-colors ${habits.sleep ? 'border-flux-500 bg-flux-50/50 dark:bg-flux-900/20' : 'border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-900/50 hover:bg-surface-100 dark:hover:bg-surface-800'}`}>
-                    <input type="checkbox" checked={habits.sleep} onChange={(e) => setHabits({...habits, sleep: e.target.checked})} className="w-5 h-5 rounded text-flux-500 focus:ring-flux-500 bg-white dark:bg-surface-950 border-surface-300 dark:border-surface-600" />
-                    <span className={`font-medium ${habits.sleep ? 'text-flux-900 dark:text-flux-100' : 'text-surface-800 dark:text-surface-200'}`}>Dormí al menos 7 horas</span>
-                  </label>
-                  <label className={`flex items-center gap-3 p-4 rounded-xl border cursor-pointer transition-colors ${habits.reflection ? 'border-flux-500 bg-flux-50/50 dark:bg-flux-900/20' : 'border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-900/50 hover:bg-surface-100 dark:hover:bg-surface-800'}`}>
-                    <input type="checkbox" checked={habits.reflection} onChange={(e) => setHabits({...habits, reflection: e.target.checked})} className="w-5 h-5 rounded text-flux-500 focus:ring-flux-500 bg-white dark:bg-surface-950 border-surface-300 dark:border-surface-600" />
-                    <span className={`font-medium ${habits.reflection ? 'text-flux-900 dark:text-flux-100' : 'text-surface-800 dark:text-surface-200'}`}>Reflexión escrita o lectura profunda</span>
-                  </label>
-                  <label className={`flex items-center gap-3 p-4 rounded-xl border cursor-pointer transition-colors ${habits.move ? 'border-flux-500 bg-flux-50/50 dark:bg-flux-900/20' : 'border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-900/50 hover:bg-surface-100 dark:hover:bg-surface-800'}`}>
-                    <input type="checkbox" checked={habits.move} onChange={(e) => setHabits({...habits, move: e.target.checked})} className="w-5 h-5 rounded text-flux-500 focus:ring-flux-500 bg-white dark:bg-surface-950 border-surface-300 dark:border-surface-600" />
-                    <span className={`font-medium ${habits.move ? 'text-flux-900 dark:text-flux-100' : 'text-surface-800 dark:text-surface-200'}`}>Entrenamiento o movimiento físico</span>
-                  </label>
-                  <label className={`flex items-center gap-3 p-4 rounded-xl border cursor-pointer transition-colors ${habits.nutrition ? 'border-flux-500 bg-flux-50/50 dark:bg-flux-900/20' : 'border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-900/50 hover:bg-surface-100 dark:hover:bg-surface-800'}`}>
-                    <input type="checkbox" checked={habits.nutrition} onChange={(e) => setHabits({...habits, nutrition: e.target.checked})} className="w-5 h-5 rounded text-flux-500 focus:ring-flux-500 bg-white dark:bg-surface-950 border-surface-300 dark:border-surface-600" />
-                    <span className={`font-medium ${habits.nutrition ? 'text-flux-900 dark:text-flux-100' : 'text-surface-800 dark:text-surface-200'}`}>Alimentación consciente / balanceada</span>
-                  </label>
-                </div>
-              </div>
+
 
               {/* Journaling */}
               <div>

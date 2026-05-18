@@ -4,9 +4,17 @@ import { Clock, MapPin, Plus, X, Calendar as CalendarIcon, Flame, Trophy, Pencil
 import { format, parseISO, isToday, addDays, addHours, eachDayOfInterval, startOfWeek, startOfMinute, differenceInMinutes, addMinutes } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { startEventNotificationScheduler, stopEventNotificationScheduler } from '@/lib/notifications';
+import { useAppContext } from '@/context/AppContext';
 
 export function AgendaView() {
-  const [events, setEvents] = useState<any[]>([]);
+  const { recesoUniversitario, setRecesoUniversitario } = useAppContext();
+  const [rawEvents, setRawEvents] = useState<any[]>([]);
+  
+  const events = useMemo(() => {
+    if (!recesoUniversitario) return rawEvents;
+    return rawEvents.filter((e: any) => !e.location);
+  }, [rawEvents, recesoUniversitario]);
+  
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,17 +32,10 @@ export function AgendaView() {
     const saved = localStorage.getItem('flux_event_status');
     return saved ? JSON.parse(saved) : {};
   });
-  const [isRecesoUniversitario, setIsRecesoUniversitario] = useState(() => {
-    return localStorage.getItem('flux_receso_active') === 'true';
-  });
 
   useEffect(() => {
     localStorage.setItem('flux_event_status', JSON.stringify(eventStatus));
   }, [eventStatus]);
-
-  useEffect(() => {
-    localStorage.setItem('flux_receso_active', isRecesoUniversitario.toString());
-  }, [isRecesoUniversitario]);
 
   const toggleEventStatus = (eventId: string) => {
     setEventStatus(prev => ({
@@ -63,7 +64,7 @@ export function AgendaView() {
         return new Date(timeA).getTime() - new Date(timeB).getTime();
       });
 
-      setEvents(sortedEvents);
+      setRawEvents(sortedEvents);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -186,17 +187,12 @@ export function AgendaView() {
 
     const isCompleted = eventStatus[event.id] || false;
 
-    // Fade logic for Receso Universitario
-    const isSportEvent = event.summary?.toLowerCase().includes('gym') || event.summary?.toLowerCase().includes('baby');
-    const isFaded = isRecesoUniversitario && !isSportEvent;
-
     return (
-      <div className={`p-4 bg-white dark:bg-surface-950 rounded-xl border ${isCompleted ? 'border-flux-500/50 opacity-70' : 'border-surface-100 dark:border-surface-800'} ${isFaded ? 'opacity-40 grayscale' : ''} shadow-sm hover:shadow-md transition-all group relative flex flex-col`}>
+      <div className={`p-4 bg-white dark:bg-surface-950 rounded-xl border ${isCompleted ? 'border-flux-500/50 opacity-70' : 'border-surface-100 dark:border-surface-800'} shadow-sm hover:shadow-md transition-all group relative flex flex-col`}>
         <div className={`absolute left-0 top-0 bottom-0 w-1 ${isCompleted ? 'bg-flux-500' : 'bg-flux-400'}`}></div>
         <div className="flex items-start gap-3">
           <button 
             onClick={() => toggleEventStatus(event.id)}
-            disabled={isFaded}
             className={`flex-shrink-0 mt-0.5 w-5 h-5 rounded border flex items-center justify-center transition-colors ${
               isCompleted 
                 ? 'bg-flux-500 border-flux-500 text-white' 
@@ -207,13 +203,13 @@ export function AgendaView() {
           </button>
           <div className="flex-1 min-w-0">
             <div className="flex justify-between items-start mb-1">
-              <h3 className={`font-semibold ${isCompleted || isFaded ? 'text-surface-400 line-through' : 'text-surface-900 dark:text-surface-50'}`}>{event.summary}</h3>
-              <span className={`text-xs font-medium px-2 py-1 rounded-md whitespace-nowrap ml-2 ${isCompleted || isFaded ? 'bg-surface-100 dark:bg-surface-800 text-surface-500' : 'bg-flux-50 dark:bg-flux-900/30 text-flux-600 dark:text-flux-400'}`}>
+              <h3 className={`font-semibold ${isCompleted ? 'text-surface-400 line-through' : 'text-surface-900 dark:text-surface-50'}`}>{event.summary}</h3>
+              <span className={`text-xs font-medium px-2 py-1 rounded-md whitespace-nowrap ml-2 ${isCompleted ? 'bg-surface-100 dark:bg-surface-800 text-surface-500' : 'bg-flux-50 dark:bg-flux-900/30 text-flux-600 dark:text-flux-400'}`}>
                 {isAllDay ? 'Todo el día' : `${format(parseISO(start), 'HH:mm')} - ${format(parseISO(end), 'HH:mm')}`}
               </span>
             </div>
             {event.location && (
-              <div className={`flex items-center gap-1.5 text-xs mt-2 w-fit px-2 py-1 rounded ${isCompleted || isFaded ? 'text-surface-400 bg-surface-50/50 dark:bg-surface-900/50' : 'text-surface-500 bg-surface-50 dark:bg-surface-900'}`}>
+              <div className={`flex items-center gap-1.5 text-xs mt-2 w-fit px-2 py-1 rounded ${isCompleted ? 'text-surface-400 bg-surface-50/50 dark:bg-surface-900/50' : 'text-surface-500 bg-surface-50 dark:bg-surface-900'}`}>
                 <MapPin className="w-3.5 h-3.5" />
                 <span className="truncate">{event.location}</span>
               </div>
@@ -287,8 +283,8 @@ export function AgendaView() {
               Calendario
             </h3>
             <button 
-              onClick={() => setIsRecesoUniversitario(!isRecesoUniversitario)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${isRecesoUniversitario ? 'bg-flux-500 text-white border-flux-500' : 'bg-surface-50 dark:bg-surface-900 text-surface-600 dark:text-surface-400 border-surface-200 dark:border-surface-800 hover:bg-surface-100 dark:hover:bg-surface-800'}`}
+              onClick={() => setRecesoUniversitario(!recesoUniversitario)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${recesoUniversitario ? 'bg-flux-500 text-white border-flux-500' : 'bg-surface-50 dark:bg-surface-900 text-surface-600 dark:text-surface-400 border-surface-200 dark:border-surface-800 hover:bg-surface-100 dark:hover:bg-surface-800'}`}
             >
               🌴 Receso Universitario
             </button>
@@ -321,10 +317,8 @@ export function AgendaView() {
                   <span className={`text-sm font-semibold mb-2 ${isSelected || isCurrentDay ? 'text-flux-600 dark:text-flux-400' : 'text-surface-700 dark:text-surface-300'}`}>{format(date, 'd')}</span>
                   <div className="flex flex-col gap-1 w-full mt-auto h-8 justify-start items-center">
                      {dayEvents.slice(0, 3).map((e: any, i: number) => {
-                        const isSport = e.summary?.toLowerCase().includes('gym') || e.summary?.toLowerCase().includes('baby');
-                        const fade = isRecesoUniversitario && !isSport;
                         return (
-                          <div key={i} className={`h-1.5 w-full rounded-full ${fade ? 'bg-surface-200 dark:bg-surface-800' : 'bg-flux-400 dark:bg-flux-500'}`} title={e.summary}></div>
+                          <div key={i} className="h-1.5 w-full rounded-full bg-flux-400 dark:bg-flux-500" title={e.summary}></div>
                         )
                      })}
                      {dayEvents.length > 3 && (

@@ -5,10 +5,17 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Calendar, Activity, Flame, Trophy, ArrowRight, Clock, MapPin, Zap, Brain, TrendingUp, Sun, Moon, AlertCircle, Pencil, Trash2, CheckCircle2 } from 'lucide-react';
 import { format, parseISO, isToday, isBefore, startOfWeek, differenceInMinutes, addMinutes, startOfMinute } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { useAppContext } from '@/context/AppContext';
 
 export function DashboardView() {
+  const { recesoUniversitario } = useAppContext();
   const navigate = useNavigate();
-  const [events, setEvents] = useState<any[]>([]);
+  const [rawEvents, setRawEvents] = useState<any[]>([]);
+
+  const events = useMemo(() => {
+    if (!recesoUniversitario) return rawEvents;
+    return rawEvents.filter((e: any) => !e.location);
+  }, [rawEvents, recesoUniversitario]);
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState('');
   const [todayMentalScore, setTodayMentalScore] = useState<number | null>(null);
@@ -68,7 +75,7 @@ export function DashboardView() {
           return new Date(timeA).getTime() - new Date(timeB).getTime();
         });
 
-        setEvents(sortedEvents as any[]);
+        setRawEvents(sortedEvents as any[]);
       } catch (calErr: any) {
         console.error('Calendar load error:', calErr);
         setCalendarError(calErr.message);
