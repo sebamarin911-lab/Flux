@@ -103,11 +103,42 @@ export function scheduleNightlyReminder() {
 
   const msUntilReminder = reminderTime.getTime() - now.getTime();
 
-  nightlyTimeout = setTimeout(() => {
-    sendNotification('🧠 Descarga Mental', {
-      body: 'Tómate unos minutos para reflexionar sobre tu día y descargar lo que tienes en mente.',
-      tag: 'nightly-reminder',
-    });
+  nightlyTimeout = setTimeout(async () => {
+    try {
+      // Lazy load to avoid circular dependencies
+      const { fetchWeekEvents } = await import('./calendar');
+      const { getNightlySummary } = await import('./gemini');
+      const { startOfDay, addDays } = await import('date-fns');
+
+      let tomorrowEvents: any[] = [];
+      try {
+        const events = await fetchWeekEvents();
+        const tomorrow = startOfDay(addDays(new Date(), 1));
+        const dayAfter = startOfDay(addDays(new Date(), 2));
+        tomorrowEvents = events.filter((e: any) => {
+          const d = new Date(e.start.dateTime || e.start.date);
+          return d >= tomorrow && d < dayAfter;
+        });
+      } catch (e) {
+        console.warn('Could not fetch events for AI summary', e);
+      }
+
+      const summary = await getNightlySummary(tomorrowEvents);
+
+      sendNotification(summary.title, {
+        body: summary.body,
+        tag: 'nightly-reminder',
+        data: { url: summary.actionUrl }
+      });
+    } catch (err) {
+      console.error('Error triggering AI nightly reminder:', err);
+      // Fallback
+      sendNotification('🧠 Descarga Mental', {
+        body: 'Tómate unos minutos para reflexionar sobre tu día y descargar lo que tienes en mente.',
+        tag: 'nightly-reminder',
+        data: { url: '/wellbeing' }
+      });
+    }
 
     // Reschedule for tomorrow
     scheduleNightlyReminder();
