@@ -4,23 +4,13 @@ import { Clock, MapPin, Plus, X, Calendar as CalendarIcon, Flame, Trophy, Pencil
 import { format, parseISO, isToday, addDays, addHours, eachDayOfInterval, startOfWeek, startOfMinute, differenceInMinutes, addMinutes } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { startEventNotificationScheduler, stopEventNotificationScheduler } from '@/lib/notifications';
-import { useAppContext } from '@/context/AppContext';
 import { fetchCompletedEvents, saveEventCompletion } from '@/lib/completedEvents';
 import { ConfirmationDialog } from '@/components/ui/ConfirmationDialog';
 
 export function AgendaView() {
-  const { recesoUniversitario, setRecesoUniversitario } = useAppContext();
   const [rawEvents, setRawEvents] = useState<any[]>([]);
   
-  const events = useMemo(() => {
-    if (!recesoUniversitario) return rawEvents;
-    return rawEvents.filter((e: any) => {
-      const locationEmpty = !e.location || e.location.trim() === '';
-      const summary = (e.summary || '').toLowerCase();
-      const hasAcademicKeyword = /clase|taller|laboratorio|cátedra|catedra|ayudantía|ayudantia|prueba|certamen|examen|universidad/i.test(summary);
-      return !(locationEmpty || hasAcademicKeyword);
-    });
-  }, [rawEvents, recesoUniversitario]);
+  const events = rawEvents;
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -416,12 +406,6 @@ export function AgendaView() {
               <CalendarIcon className="w-4 h-4 text-flux-500" />
               Calendario
             </h3>
-            <button 
-              onClick={() => setRecesoUniversitario(!recesoUniversitario)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors border cursor-pointer ${recesoUniversitario ? 'bg-flux-500 text-white border-flux-500' : 'bg-surface-50 dark:bg-surface-900 text-surface-600 dark:text-surface-400 border-surface-200 dark:border-surface-800 hover:bg-surface-100 dark:hover:bg-surface-800'}`}
-            >
-              🌴 Receso Universitario
-            </button>
           </div>
           <div 
             className="flex overflow-x-auto gap-2 pb-2 scrollbar-thin scrollbar-thumb-surface-200 dark:scrollbar-thumb-surface-700 scrollbar-track-transparent snap-x"

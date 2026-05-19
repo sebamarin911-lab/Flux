@@ -1,18 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Bell, BellOff, Clock, Brain, Smartphone } from 'lucide-react';
+import { Bell, BellOff, Clock, Brain, Smartphone, Flame, Trophy } from 'lucide-react';
 import { 
   getNotificationStatus, 
   requestNotificationPermission,
   scheduleMorningBrief 
 } from '@/lib/notifications';
 import { subscribeToPush, unsubscribeFromPush, isPushSubscribed } from '@/lib/pushSubscription';
-import { useAppContext } from '@/context/AppContext';
-
-import { getFlowRecovery } from '@/lib/gemini';
+import { fetchUserStreak } from '@/lib/completedEvents';
 
 export function SettingsView() {
-  const { recesoUniversitario, setRecesoUniversitario } = useAppContext();
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [notifStatus, setNotifStatus] = useState(getNotificationStatus());
   const [morningEnabled, setMorningEnabled] = useState(() => {
@@ -20,10 +17,10 @@ export function SettingsView() {
   });
   const [pushSubscribed, setPushSubscribed] = useState(false);
   const [pushLoading, setPushLoading] = useState(false);
-  const [flowHabits, setFlowHabits] = useState<any[] | null>(() => {
-    const s = localStorage.getItem('ai_flow_habits');
-    return s ? JSON.parse(s) : null;
-  });
+  const [streakInfo, setStreakInfo] = useState<{
+    current_streak: number;
+    max_racha_historica: number;
+  }>({ current_streak: 0, max_racha_historica: 0 });
 
   useEffect(() => {
     async function loadUser() {
@@ -33,27 +30,19 @@ export function SettingsView() {
       }
     }
     loadUser();
+
+    async function loadStreak() {
+      const info = await fetchUserStreak();
+      setStreakInfo({
+        current_streak: info.current_streak,
+        max_racha_historica: info.max_racha_historica
+      });
+    }
+    loadStreak();
+
     // Check push subscription status
     isPushSubscribed().then(setPushSubscribed);
   }, []);
-
-  const handleToggleReceso = async (val: boolean) => {
-    setRecesoUniversitario(val);
-    if (val) {
-      // AI Flow Recovery trigger on receso activation
-      try {
-        const daysSince = Number(localStorage.getItem('flux_streak') || 0);
-        const lastMood = Number(localStorage.getItem('flux_last_mood') || 3);
-        const result = await getFlowRecovery({ status: 'receso', days_off: daysSince, last_mood: lastMood });
-        if (result?.habits) {
-          localStorage.setItem('ai_flow_habits', JSON.stringify(result.habits));
-          setFlowHabits(result.habits);
-        }
-      } catch (e) {
-        console.warn('[AI] Flow recovery trigger failed silently', e);
-      }
-    }
-  };
 
   const handleEnableNotifications = async () => {
     const granted = await requestNotificationPermission();
@@ -97,54 +86,53 @@ export function SettingsView() {
       </div>
 
       <div className="space-y-6">
-        {/* Global Config */}
-        <div className="bg-white dark:bg-surface-950 p-6 rounded-2xl border border-surface-100 dark:border-surface-800 shadow-sm">
-          <h2 className="text-xl font-semibold mb-4">Configuración Global</h2>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between p-4 bg-surface-50 dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
-                  <span className="text-xl">🌴</span>
-                </div>
-                <div>
-                  <p className="font-medium">Receso Universitario</p>
-                  <p className="text-sm text-surface-500">
-                    Ocultar clases y pausar progreso académico de la agenda.
-                  </p>
+        {/* Logros y Rachas Deportivas */}
+        <div className="bg-white dark:bg-surface-950 p-6 rounded-2xl border border-surface-100 dark:border-surface-800 shadow-sm relative overflow-hidden">
+          {/* Glassmorphism accent lines/effects */}
+          <div className="absolute top-0 right-0 w-24 h-24 bg-orange-500/10 rounded-full blur-xl pointer-events-none"></div>
+          <div className="absolute bottom-0 left-0 w-16 h-16 bg-yellow-500/10 rounded-full blur-lg pointer-events-none"></div>
+
+          <h2 className="text-xl font-bold flex items-center gap-2 mb-4">
+            <Flame className="w-5 h-5 text-orange-500 animate-pulse" />
+            <span>Logros y Rachas Deportivas</span>
+          </h2>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Active Streak */}
+            <div className="flex items-center gap-4 p-4 bg-orange-50/50 dark:bg-orange-950/10 rounded-xl border border-orange-100 dark:border-orange-900/30">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center shadow-md animate-glow-orange flex-shrink-0">
+                <Flame className="w-6 h-6 text-white animate-bounce" />
+              </div>
+              <div>
+                <p className="text-xs text-surface-400 font-semibold uppercase tracking-wider">Racha Activa</p>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-2xl font-extrabold text-surface-900 dark:text-surface-50">{streakInfo.current_streak}</span>
+                  <span className="text-xs text-surface-500 font-medium">días</span>
                 </div>
               </div>
-              <button
-                onClick={() => handleToggleReceso(!recesoUniversitario)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
-                  recesoUniversitario ? 'bg-flux-500' : 'bg-surface-300 dark:bg-surface-600'
-                }`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
-                  recesoUniversitario ? 'translate-x-6' : 'translate-x-1'
-                }`} />
-              </button>
             </div>
 
-            {/* AI Flow Recovery Habits (shown when receso is ON) */}
-            {recesoUniversitario && flowHabits && flowHabits.length > 0 && (
-              <div className="p-4 bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 rounded-xl">
-                <p className="text-sm font-semibold text-purple-700 dark:text-purple-300 mb-3 flex items-center gap-2">
-                  <span>🤖</span> Micro-hábitos IA para mantenerte en ritmo
-                </p>
-                <div className="space-y-2">
-                  {flowHabits.map((h: any, i: number) => (
-                    <div key={i} className="flex items-start gap-2 text-sm">
-                      <span className="text-purple-500 font-bold mt-0.5">•</span>
-                      <div>
-                        <span className="font-medium text-surface-800 dark:text-surface-200">{h.title}</span>
-                        <span className="text-surface-500"> ({h.duration}) — </span>
-                        <span className="text-surface-500 text-xs">{h.why}</span>
-                      </div>
-                    </div>
-                  ))}
+            {/* Historic Record */}
+            <div className="flex items-center gap-4 p-4 bg-yellow-50/50 dark:bg-yellow-950/10 rounded-xl border border-yellow-100 dark:border-yellow-900/30">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-yellow-500 to-amber-500 flex items-center justify-center shadow-md flex-shrink-0">
+                <Trophy className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <p className="text-xs text-surface-400 font-semibold uppercase tracking-wider">Récord Personal</p>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-2xl font-extrabold text-surface-900 dark:text-surface-50">{streakInfo.max_racha_historica}</span>
+                  <span className="text-xs text-surface-500 font-medium">días</span>
                 </div>
               </div>
-            )}
+            </div>
+          </div>
+
+          <div className="mt-4 p-3 bg-surface-50 dark:bg-surface-900/50 rounded-xl border border-surface-200/50 dark:border-surface-800/50 text-center">
+            <p className="text-xs text-surface-500 dark:text-surface-400 italic">
+              {streakInfo.current_streak > 0 
+                ? `🔥 ¡Tu racha actual de ${streakInfo.current_streak} días está activa! Sigue completando tus metas.` 
+                : '🎯 Completa tus metas diarias (#Gym o #BabyFutbol) para activar tu racha y registrar tu récord.'}
+            </p>
           </div>
         </div>
 

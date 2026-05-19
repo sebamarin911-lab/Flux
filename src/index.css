@@ -16,6 +16,23 @@
 
   --font-sans: "Inter", "Helvetica", "Arial", sans-serif;
   --font-display: "Outfit", "Inter", "Helvetica", "Arial", sans-serif;
+
+  --animate-pulse-slow: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-glow-orange: glow-orange 2s ease-in-out infinite alternate;
+  --animate-glow-red: glow-red 1.5s ease-in-out infinite alternate;
+
+  @keyframes pulse-slow {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.85; transform: scale(1.015); }
+  }
+  @keyframes glow-orange {
+    from { box-shadow: 0 0 8px rgba(249, 115, 22, 0.3), 0 0 15px rgba(249, 115, 22, 0.2); }
+    to { box-shadow: 0 0 25px rgba(249, 115, 22, 0.7), 0 0 35px rgba(249, 115, 22, 0.4); }
+  }
+  @keyframes glow-red {
+    from { box-shadow: 0 0 10px rgba(239, 68, 68, 0.4), 0 0 20px rgba(239, 68, 68, 0.2); }
+    to { box-shadow: 0 0 30px rgba(239, 68, 68, 0.9), 0 0 45px rgba(249, 115, 22, 0.6); }
+  }
 }
 
 @layer base {

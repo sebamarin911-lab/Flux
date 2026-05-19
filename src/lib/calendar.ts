@@ -4,33 +4,76 @@ import { logger } from './logger';
 import { GoogleEventSchema } from './validation';
 
 /**
- * Attempt to refresh the Supabase session and retrieve a fresh Google provider_token.
- * Returns the new token or null if the refresh didn't produce one.
+ * Attempt to refresh the Google OAuth access token using our secure Edge Function.
+ * Returns the new token or null if the refresh failed.
  */
 async function refreshGoogleToken(): Promise<string | null> {
-  logger.info('Calendar', 'Refreshing Google OAuth session...');
+  logger.info('Calendar', 'Refreshing Google OAuth token via Edge Function...');
   try {
-    const { data, error } = await supabase.auth.refreshSession();
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !sessionData.session) {
+      logger.error('Calendar', 'No active session found during token refresh', sessionError);
+      return null;
+    }
+
+    const sessionToken = sessionData.session.access_token;
+
+    const { data, error } = await supabase.functions.invoke('refresh-google-token', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+      },
+    });
+
     if (error) {
-      logger.error('Calendar', 'Failed to refresh Supabase session', error);
+      logger.error('Calendar', 'Failed to invoke refresh-google-token Edge Function', error);
       return null;
     }
-    if (!data.session) {
-      logger.warn('Calendar', 'No active session returned after refresh attempt');
-      return null;
-    }
-    const newToken = data.session.provider_token;
+
+    const newToken = data?.access_token;
     if (newToken) {
       localStorage.setItem('google_provider_token', newToken);
-      logger.info('Calendar', 'Google OAuth session refreshed successfully');
+      logger.info('Calendar', 'Google OAuth token refreshed successfully via Edge Function');
+      return newToken;
     } else {
-      localStorage.removeItem('google_provider_token');
-      logger.warn('Calendar', 'Session refreshed but no new Google provider token returned');
+      logger.warn('Calendar', 'Edge Function returned no access token');
+      return null;
     }
-    return newToken ?? null;
   } catch (err) {
-    logger.error('Calendar', 'Unexpected error refreshing Google session', err);
+    logger.error('Calendar', 'Unexpected error refreshing Google token via Edge Function', err);
     return null;
+  }
+}
+
+/**
+ * Saves the Google refresh token securely to the user_tokens table.
+ */
+export async function saveGoogleRefreshToken(refreshToken: string) {
+  logger.info('Calendar', 'Saving Google refresh token to DB...');
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      logger.error('Calendar', 'Cannot save refresh token: no authenticated user');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('user_tokens')
+      .upsert({
+        user_id: user.id,
+        refresh_token: refreshToken,
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'user_id'
+      });
+
+    if (error) {
+      logger.error('Calendar', 'Error saving Google refresh token to Supabase user_tokens table:', error);
+    } else {
+      logger.info('Calendar', 'Google refresh token saved to database successfully');
+    }
+  } catch (err) {
+    logger.error('Calendar', 'Unexpected error saving Google refresh token', err);
   }
 }
 

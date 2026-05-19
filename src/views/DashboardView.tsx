@@ -5,25 +5,25 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Calendar, Activity, Flame, Trophy, ArrowRight, Clock, MapPin, Zap, Brain, TrendingUp, Sun, Moon, AlertCircle, Pencil, Trash2, CheckCircle2 } from 'lucide-react';
 import { format, parseISO, isToday, isBefore, startOfWeek, differenceInMinutes, addMinutes, startOfMinute } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { useAppContext } from '@/context/AppContext';
-import { fetchCompletedEvents, saveEventCompletion } from '@/lib/completedEvents';
+import { fetchCompletedEvents, saveEventCompletion, fetchUserStreak, updateUserStreak } from '@/lib/completedEvents';
 import { ConfirmationDialog } from '@/components/ui/ConfirmationDialog';
 import { logger } from '@/lib/logger';
+import { requestNotificationPermission, scheduleMorningBrief, startEventNotificationScheduler, sendNotification } from '@/lib/notifications';
 
 export function DashboardView() {
-  const { recesoUniversitario } = useAppContext();
   const navigate = useNavigate();
   const [rawEvents, setRawEvents] = useState<any[]>([]);
 
-  const events = useMemo(() => {
-    if (!recesoUniversitario) return rawEvents;
-    return rawEvents.filter((e: any) => {
-      const locationEmpty = !e.location || e.location.trim() === '';
-      const summary = (e.summary || '').toLowerCase();
-      const hasAcademicKeyword = /clase|taller|laboratorio|cátedra|catedra|ayudantía|ayudantia|prueba|certamen|examen|universidad/i.test(summary);
-      return !(locationEmpty || hasAcademicKeyword);
+  const events = rawEvents;
+
+  // Today's events
+  const todayEvents = useMemo(() => {
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    return events.filter(e => {
+      const dateStr = format(parseISO(e.start.dateTime || e.start.date), 'yyyy-MM-dd');
+      return dateStr === todayStr;
     });
-  }, [rawEvents, recesoUniversitario]);
+  }, [events]);
 
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState('');
@@ -31,6 +31,12 @@ export function DashboardView() {
   const [weeklyLogCount, setWeeklyLogCount] = useState(0);
   const [calendarError, setCalendarError] = useState<string | null>(null);
   const [eventStatus, setEventStatus] = useState<Record<string, boolean>>({});
+
+  const [streakInfo, setStreakInfo] = useState<{
+    current_streak: number;
+    max_racha_historica: number;
+    last_completed_date: string | null;
+  }>({ current_streak: 0, max_racha_historica: 0, last_completed_date: null });
 
   // Confirmation Dialog States
   const [deleteDialog, setDeleteDialog] = useState<{
@@ -69,6 +75,7 @@ export function DashboardView() {
     try {
       // Load user
       const { data: userData } = await supabase.auth.getUser();
+      let statusMap: Record<string, boolean> = {};
       if (userData.user) {
         const name = userData.user.user_metadata?.full_name || userData.user.email?.split('@')[0] || '';
         setUserName(name.split(' ')[0]); // First name only
@@ -96,10 +103,11 @@ export function DashboardView() {
       }
 
       // Load completed events from DB / localStorage
-      const statusMap = await fetchCompletedEvents();
+      statusMap = await fetchCompletedEvents();
       setEventStatus(statusMap);
 
       // Load events
+      let sortedEvents: any[] = [];
       try {
         const data = await fetchWeekEvents();
         const uniqueEventsMap = data.reduce((acc: any, event: any) => {
@@ -110,7 +118,7 @@ export function DashboardView() {
           return acc;
         }, {});
 
-        const sortedEvents = Object.values(uniqueEventsMap).sort((a: any, b: any) => {
+        sortedEvents = Object.values(uniqueEventsMap).sort((a: any, b: any) => {
           const timeA = (a as any).start.dateTime || (a as any).start.date;
           const timeB = (b as any).start.dateTime || (b as any).start.date;
           return new Date(timeA).getTime() - new Date(timeB).getTime();
@@ -121,6 +129,15 @@ export function DashboardView() {
         console.error('Calendar load error:', calErr);
         setCalendarError(calErr.message);
       }
+
+      // Sync and load user streak
+      const todayStr = format(new Date(), 'yyyy-MM-dd');
+      const todayEvts = sortedEvents.filter((e: any) => {
+        const dateStr = format(parseISO(e.start.dateTime || e.start.date), 'yyyy-MM-dd');
+        return dateStr === todayStr;
+      });
+      const updatedStreak = await updateUserStreak(todayEvts, statusMap);
+      setStreakInfo(updatedStreak);
     } catch (err) {
       console.error('Dashboard load error:', err);
     } finally {
@@ -263,14 +280,52 @@ export function DashboardView() {
     const newStatus = !currentStatus;
     
     // UI instantánea
-    setEventStatus(prev => ({ ...prev, [id]: newStatus }));
+    const updatedStatus = { ...eventStatus, [id]: newStatus };
+    setEventStatus(updatedStatus);
     
     // DB & LocalStorage
     await saveEventCompletion(id, newStatus);
+
+    // Actualizar racha deportista de forma instantánea
+    const updatedStreak = await updateUserStreak(todayEvents, updatedStatus);
+    setStreakInfo(updatedStreak);
     
     // Recargar métricas del dashboard
     loadDashboard();
   };
+
+  // Racha Deportiva en Peligro: pasadas las 20:00, hay eventos hoy y están pendientes o falta actividad crítica
+  const isStreakInDanger = useMemo(() => {
+    const isPast20 = new Date().getHours() >= 20;
+    if (todayEvents.length === 0) return false;
+
+    const hasPendingEvents = !todayEvents.every(e => eventStatus[e.id]);
+    const hasPendingCritical = todayEvents.some(
+      e => !eventStatus[e.id] && /#gym|#babyfutbol|gym|baby futbol/i.test(e.summary || '')
+    );
+
+    return isPast20 && (hasPendingEvents || hasPendingCritical);
+  }, [todayEvents, eventStatus]);
+
+  // Alerta proactiva de notificación push local cuando la racha está en peligro
+  useEffect(() => {
+    if (isStreakInDanger) {
+      const todayKey = new Date().toLocaleDateString('en-CA');
+      const notified = localStorage.getItem('flux_streak_danger_notified');
+      if (notified !== todayKey) {
+        requestNotificationPermission().then(granted => {
+          if (granted) {
+            sendNotification('🔥 ¡Racha en Peligro!', {
+              body: 'Son pasadas las 20:00 y tienes actividades deportivas o de agenda pendientes. ¡Compleméntalas hoy para mantener tu racha!',
+              tag: 'streak-danger',
+              requireInteraction: true
+            });
+            localStorage.setItem('flux_streak_danger_notified', todayKey);
+          }
+        });
+      }
+    }
+  }, [isStreakInDanger]);
 
   // Greeting based on time of day
   const greeting = useMemo(() => {
@@ -279,15 +334,6 @@ export function DashboardView() {
     if (hour < 19) return { text: 'Buenas tardes', icon: Sun, emoji: '🌤️' };
     return { text: 'Buenas noches', icon: Moon, emoji: '🌙' };
   }, []);
-
-  // Today's events
-  const todayEvents = useMemo(() => {
-    const todayStr = format(new Date(), 'yyyy-MM-dd');
-    return events.filter(e => {
-      const dateStr = format(parseISO(e.start.dateTime || e.start.date), 'yyyy-MM-dd');
-      return dateStr === todayStr;
-    });
-  }, [events]);
 
   // Next upcoming event (from now forward)
   const nextEvent = useMemo(() => {
@@ -409,84 +455,138 @@ export function DashboardView() {
       )}
 
       {/* Quick Stats Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Streak Centerpiece Card (🔥) */}
+        <div className={`p-5 rounded-2xl text-white relative overflow-hidden transition-all duration-500 flex flex-col justify-between ${
+          isStreakInDanger 
+            ? 'bg-gradient-to-br from-red-600 via-orange-500 to-red-700 animate-pulse-slow animate-glow-red border border-red-400/30' 
+            : 'bg-gradient-to-br from-orange-500 via-amber-500 to-red-600 animate-glow-orange'
+        }`}>
+          {/* Decorative floating shapes */}
+          <div className="absolute -top-10 -right-10 w-24 h-24 bg-white/10 rounded-full blur-lg"></div>
+          <div className="absolute -bottom-6 -left-6 w-20 h-20 bg-white/5 rounded-full blur-md"></div>
+          
+          <div className="relative z-10 flex flex-col h-full justify-between">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[10px] font-bold uppercase tracking-wider bg-white/20 backdrop-blur-sm px-2.5 py-1 rounded-full">
+                {isStreakInDanger ? '⚠️ En Peligro' : '⚡ Racha Deportiva'}
+              </span>
+              <Flame className={`w-6 h-6 text-white ${isStreakInDanger ? 'animate-bounce' : 'animate-pulse'}`} />
+            </div>
+
+            <div className="my-2">
+              <div className="flex items-baseline gap-1">
+                <span className="text-4xl font-extrabold tracking-tight filter drop-shadow-sm">
+                  {streakInfo.current_streak}
+                </span>
+                <span className="text-xs font-semibold opacity-90">días 🔥</span>
+              </div>
+              <p className="text-[10px] opacity-90 mt-1 font-medium leading-tight">
+                {isStreakInDanger 
+                  ? '¡Completa tus metas deportivas hoy antes de las 00:00!' 
+                  : streakInfo.current_streak > 0 
+                    ? '¡Tu fuego brilla con fuerza! Sigue así.' 
+                    : '¡Comienza hoy completando tu primera meta!'}
+              </p>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-white/25 flex items-center justify-between text-xs font-semibold">
+              <span className="opacity-80">Récord Histórico:</span>
+              <span className="flex items-center gap-1 bg-white/20 px-2 py-0.5 rounded-full">
+                <Trophy className="w-3 h-3" /> {streakInfo.max_racha_historica}
+              </span>
+            </div>
+          </div>
+        </div>
+
         {/* Next Event Card */}
-        <div className="col-span-2 bg-gradient-to-br from-flux-500 to-flux-600 text-white p-5 rounded-2xl shadow-lg relative overflow-hidden">
+        <div className="bg-gradient-to-br from-flux-500 to-flux-600 text-white p-5 rounded-2xl shadow-sm relative overflow-hidden flex flex-col justify-between">
           <div className="absolute -top-6 -right-6 w-24 h-24 bg-white/10 rounded-full blur-xl"></div>
-          <div className="relative z-10">
-            <p className="text-flux-100 text-xs font-medium uppercase tracking-wider mb-2">Próximo Evento</p>
-            {nextEvent ? (
-              <>
-                <h3 className="text-xl font-bold mb-1 truncate">{nextEvent.summary}</h3>
-                <div className="flex items-center gap-3 text-flux-100 text-sm">
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5" />
-                    {nextEvent.start.dateTime 
-                      ? format(parseISO(nextEvent.start.dateTime), 'HH:mm')
-                      : 'Todo el día'
-                    }
-                  </span>
-                  {nextEvent.location && (
-                    <span className="flex items-center gap-1 truncate">
-                      <MapPin className="w-3.5 h-3.5" />
-                      {nextEvent.location}
+          <div className="relative z-10 flex flex-col h-full justify-between">
+            <div>
+              <p className="text-flux-100 text-[10px] font-semibold uppercase tracking-wider mb-2">Próximo Evento</p>
+              {nextEvent ? (
+                <>
+                  <h3 className="text-lg font-bold mb-1 truncate leading-tight">{nextEvent.summary}</h3>
+                  <div className="flex flex-col gap-1 text-flux-100 text-xs mt-2">
+                    <span className="flex items-center gap-1 font-medium">
+                      <Clock className="w-3.5 h-3.5" />
+                      {nextEvent.start.dateTime 
+                        ? format(parseISO(nextEvent.start.dateTime), 'HH:mm')
+                        : 'Todo el día'
+                      }
                     </span>
-                  )}
-                </div>
-                {timeUntilNext && (
-                  <div className="mt-3 inline-flex items-center gap-1.5 bg-white/20 backdrop-blur-sm px-3 py-1.5 rounded-lg text-sm font-medium">
-                    <Zap className="w-3.5 h-3.5" /> En {timeUntilNext}
+                    {nextEvent.location && (
+                      <span className="flex items-center gap-1 truncate opacity-90">
+                        <MapPin className="w-3.5 h-3.5" />
+                        {nextEvent.location}
+                      </span>
+                    )}
                   </div>
-                )}
-              </>
-            ) : (
-              <p className="text-flux-100 text-sm">No hay eventos próximos. ¡Disfruta tu tiempo libre!</p>
+                </>
+              ) : (
+                <p className="text-flux-100 text-xs">No hay eventos próximos. ¡Disfruta tu tiempo libre!</p>
+              )}
+            </div>
+            {nextEvent && timeUntilNext && (
+              <div className="mt-4 inline-flex items-center gap-1.5 bg-white/20 backdrop-blur-sm px-2.5 py-1 rounded-lg text-xs font-semibold w-fit">
+                <Zap className="w-3.5 h-3.5" /> En {timeUntilNext}
+              </div>
             )}
           </div>
         </div>
 
         {/* Today Progress */}
-        <div className="bg-white dark:bg-surface-950 p-5 rounded-2xl border border-surface-100 dark:border-surface-800 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-surface-400 uppercase tracking-wider">Completado Hoy</span>
-            <Trophy className="w-4 h-4 text-flux-500" />
+        <div className="bg-white dark:bg-surface-950 p-5 rounded-2xl border border-surface-100 dark:border-surface-800 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider">Completado Hoy</span>
+              <Trophy className="w-4 h-4 text-flux-500" />
+            </div>
+            <div className="flex items-baseline gap-1.5 my-2">
+              <span className="text-3xl font-bold text-surface-900 dark:text-surface-50">
+                {todayCompletedCount}
+              </span>
+              <span className="text-sm text-surface-400">/ {todayEvents.length}</span>
+            </div>
           </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-3xl font-bold text-surface-900 dark:text-surface-50">
-              {todayCompletedCount}
-            </span>
-            <span className="text-sm text-surface-400">/ {todayEvents.length}</span>
-          </div>
-          <div className="w-full bg-surface-100 dark:bg-surface-800 h-1.5 rounded-full mt-3 overflow-hidden">
-            <div 
-              className="bg-flux-500 h-full rounded-full transition-all duration-500"
-              style={{ width: `${todayEvents.length > 0 ? (todayCompletedCount / todayEvents.length) * 100 : 0}%` }}
-            ></div>
+          <div>
+            <div className="w-full bg-surface-100 dark:bg-surface-800 h-1.5 rounded-full overflow-hidden">
+              <div 
+                className="bg-flux-500 h-full rounded-full transition-all duration-500"
+                style={{ width: `${todayEvents.length > 0 ? (todayCompletedCount / todayEvents.length) * 100 : 0}%` }}
+              ></div>
+            </div>
+            <p className="text-[10px] text-surface-400 mt-2 font-medium">
+              {todayEvents.length > 0 ? `${Math.round((todayCompletedCount / todayEvents.length) * 100)}% de tareas` : 'Sin tareas para hoy'}
+            </p>
           </div>
         </div>
 
         {/* Mental Health */}
-        <div className="bg-white dark:bg-surface-950 p-5 rounded-2xl border border-surface-100 dark:border-surface-800 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-surface-400 uppercase tracking-wider">Estado Mental</span>
-            <Activity className="w-4 h-4 text-purple-500" />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-3xl">{mentalEmoji(todayMentalScore)}</span>
-            <div>
-              <p className="text-sm font-bold text-surface-900 dark:text-surface-50">
-                {todayMentalScore !== null ? `${todayMentalScore} / 5` : 'Sin Registro'}
-              </p>
-              <p className="text-[10px] text-surface-400">
-                {weeklyLogCount} registros esta semana
-              </p>
+        <div className="bg-white dark:bg-surface-950 p-5 rounded-2xl border border-surface-100 dark:border-surface-800 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider">Estado Mental</span>
+              <Activity className="w-4 h-4 text-purple-500" />
+            </div>
+            <div className="flex items-center gap-3 my-2">
+              <span className="text-3xl">{mentalEmoji(todayMentalScore)}</span>
+              <div>
+                <p className="text-base font-bold text-surface-900 dark:text-surface-50">
+                  {todayMentalScore !== null ? `${todayMentalScore} / 5` : 'Sin Registro'}
+                </p>
+                <p className="text-[9px] text-surface-400 font-medium">
+                  {weeklyLogCount} registros esta semana
+                </p>
+              </div>
             </div>
           </div>
           <Link 
             to="/wellbeing"
-            className="text-[11px] font-semibold text-flux-600 dark:text-flux-400 hover:underline flex items-center gap-0.5 mt-2.5"
+            className="text-[11px] font-semibold text-flux-600 dark:text-flux-400 hover:underline flex items-center gap-0.5 mt-4 w-fit"
           >
-            Registrar ahora <ArrowRight className="w-3 h-3" />
+            Registrar ahora <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </div>
       </div>
@@ -602,35 +702,8 @@ export function DashboardView() {
           )}
         </div>
 
-        {/* Right Column - Streaks + Quick Actions */}
+        {/* Right Column - Quick Actions */}
         <div className="space-y-5">
-          {/* Streaks Mini */}
-          <div className="bg-white dark:bg-surface-950 p-5 rounded-2xl border border-surface-100 dark:border-surface-800 shadow-sm">
-            <h3 className="text-sm font-semibold text-surface-900 dark:text-surface-50 mb-4 flex items-center gap-2">
-              <Flame className="w-4 h-4 text-orange-500" /> Mis Rachas
-            </h3>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-orange-50 dark:bg-orange-950/30 flex items-center justify-center">
-                    <Flame className="w-4 h-4 text-orange-500" />
-                  </div>
-                  <span className="text-sm font-medium text-surface-700 dark:text-surface-300">Baby Fútbol</span>
-                </div>
-                <span className="text-lg font-bold text-orange-600 dark:text-orange-400">{completedStreaks.baby}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950/30 flex items-center justify-center">
-                    <Trophy className="w-4 h-4 text-blue-500" />
-                  </div>
-                  <span className="text-sm font-medium text-surface-700 dark:text-surface-300">Gym</span>
-                </div>
-                <span className="text-lg font-bold text-blue-600 dark:text-blue-400">{completedStreaks.gym}</span>
-              </div>
-            </div>
-          </div>
-
           {/* Quick Actions */}
           <div className="bg-white dark:bg-surface-950 p-5 rounded-2xl border border-surface-100 dark:border-surface-800 shadow-sm">
             <h3 className="text-sm font-semibold text-surface-900 dark:text-surface-50 mb-4">Accesos Rápidos</h3>

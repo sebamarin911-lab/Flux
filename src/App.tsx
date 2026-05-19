@@ -10,7 +10,7 @@ import { SettingsView } from '@/views/SettingsView';
 import { LoginView } from '@/views/LoginView';
 import { requestNotificationPermission, scheduleMorningBrief, startEventNotificationScheduler } from '@/lib/notifications';
 import { subscribeToPush } from '@/lib/pushSubscription';
-import { AppProvider } from '@/context/AppContext';
+import { saveGoogleRefreshToken } from '@/lib/calendar';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -22,6 +22,9 @@ export default function App() {
       if (session?.provider_token) {
         localStorage.setItem('google_provider_token', session.provider_token);
       }
+      if (session?.provider_refresh_token) {
+        saveGoogleRefreshToken(session.provider_refresh_token);
+      }
       setLoading(false);
     });
 
@@ -31,6 +34,9 @@ export default function App() {
       setSession(session);
       if (session?.provider_token) {
         localStorage.setItem('google_provider_token', session.provider_token);
+      }
+      if (session?.provider_refresh_token) {
+        saveGoogleRefreshToken(session.provider_refresh_token);
       }
     });
 
@@ -63,19 +69,17 @@ export default function App() {
   }
 
   return (
-    <AppProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route element={<AppLayout />}>
-            <Route path="/" element={<DashboardView />} />
-            <Route path="/agenda" element={<AgendaView />} />
-            <Route path="/wellbeing" element={<WellbeingView />} />
-            <Route path="/report" element={<WeeklyReportView />} />
-            <Route path="/settings" element={<SettingsView />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </AppProvider>
+    <BrowserRouter>
+      <Routes>
+        <Route element={<AppLayout />}>
+          <Route path="/" element={<DashboardView />} />
+          <Route path="/agenda" element={<AgendaView />} />
+          <Route path="/wellbeing" element={<WellbeingView />} />
+          <Route path="/report" element={<WeeklyReportView />} />
+          <Route path="/settings" element={<SettingsView />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
   );
 }
