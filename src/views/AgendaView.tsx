@@ -223,7 +223,7 @@ export function AgendaView() {
         </div>
 
         {/* Action Buttons */}
-        <div className="mt-4 pt-3 border-t border-surface-100 dark:border-surface-800 flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="mt-4 pt-3 border-t border-surface-100 dark:border-surface-800 flex items-center justify-end gap-2 flex-wrap md:opacity-0 md:group-hover:opacity-100 opacity-100 transition-opacity">
           <button 
             onClick={() => handleEditEvent(event)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-surface-600 dark:text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800 rounded-lg transition-colors"

@@ -417,7 +417,7 @@ export function DashboardView() {
                       )}
                     </div>
                     
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1.5 flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 opacity-100 transition-opacity">
                       <button 
                         onClick={() => toggleEventComplete(event.id)}
                         className={`p-2 rounded-lg transition-colors ${isCompleted ? 'text-green-600 bg-green-50 dark:bg-green-900/30' : 'text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800'}`}
