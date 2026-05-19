@@ -62,13 +62,18 @@ serve(async (req) => {
             vapidSubject
           );
           
+          let responseBody = "";
+          try {
+            responseBody = await result.text();
+          } catch (_) {}
+          
           // If subscription is expired (410 Gone), remove it
           if (result.status === 410 || result.status === 404) {
             await supabase.from("push_subscriptions").delete().eq("endpoint", sub.endpoint);
-            return { endpoint: sub.endpoint, status: "removed" };
+            return { endpoint: sub.endpoint, status: "removed", response: responseBody };
           }
           
-          return { endpoint: sub.endpoint, status: result.status };
+          return { endpoint: sub.endpoint, status: result.status, response: responseBody };
         } catch (e) {
           return { endpoint: sub.endpoint, error: (e as Error).message };
         }
@@ -100,7 +105,7 @@ async function sendWebPush(
   const audience = `${endpoint.protocol}//${endpoint.host}`;
 
   // Create VAPID JWT
-  const jwt = await createVapidJwt(audience, vapidSubject, vapidPrivateKey);
+  const jwt = await createVapidJwt(audience, vapidSubject, vapidPrivateKey, vapidPublicKey);
   
   // Encrypt the payload
   const encrypted = await encryptPayload(
@@ -113,7 +118,7 @@ async function sendWebPush(
   return fetch(subscription.endpoint, {
     method: "POST",
     headers: {
-      "Authorization": `vapid t=${jwt}, k=${vapidPublicKey}`,
+      "Authorization": `vapid t=${jwt},k=${vapidPublicKey}`,
       "Content-Encoding": "aes128gcm",
       "Content-Type": "application/octet-stream",
       "TTL": "86400",
@@ -123,7 +128,30 @@ async function sendWebPush(
   });
 }
 
-async function createVapidJwt(audience: string, subject: string, privateKeyBase64: string): Promise<string> {
+async function createVapidJwt(
+  audience: string,
+  rawSubject: string,
+  privateKeyBase64: string,
+  publicKeyBase64: string
+): Promise<string> {
+  // Robust Subject formatting for Apple APNs
+  let subject = (rawSubject || "").trim();
+  if (subject.startsWith('"') && subject.endsWith('"')) {
+    subject = subject.slice(1, -1);
+  }
+  if (subject.startsWith("'") && subject.endsWith("'")) {
+    subject = subject.slice(1, -1);
+  }
+  if (!subject || (!subject.startsWith("mailto:") && !subject.startsWith("http://") && !subject.startsWith("https://"))) {
+    if (subject.includes("@")) {
+      subject = `mailto:${subject}`;
+    } else {
+      subject = "mailto:flux@example.com";
+    }
+  }
+
+  console.log(`[Push] JWT Claims - Audience: ${audience}, Subject: ${subject}`);
+
   const header = { typ: "JWT", alg: "ES256" };
   const now = Math.floor(Date.now() / 1000);
   const claims = {
@@ -136,11 +164,26 @@ async function createVapidJwt(audience: string, subject: string, privateKeyBase6
   const claimsB64 = base64urlEncode(new TextEncoder().encode(JSON.stringify(claims)));
   const unsignedToken = `${headerB64}.${claimsB64}`;
 
-  // Import the private key
-  const privateKeyBytes = base64urlDecode(privateKeyBase64);
+  // Decode keys
+  const publicBytes = base64urlDecode(publicKeyBase64);
+  if (publicBytes[0] !== 4 || publicBytes.length !== 65) {
+    throw new Error(`Invalid public key format. Expected 65-byte uncompressed EC key, got ${publicBytes.length} bytes.`);
+  }
+  const xBytes = publicBytes.slice(1, 33);
+  const yBytes = publicBytes.slice(33, 65);
+
+  const jwk = {
+    kty: "EC",
+    crv: "P-256",
+    x: base64urlEncode(xBytes),
+    y: base64urlEncode(yBytes),
+    d: privateKeyBase64,
+  };
+
+  // Import the private key in JWK format
   const key = await crypto.subtle.importKey(
-    "raw",
-    privateKeyBytes,
+    "jwk",
+    jwk,
     { name: "ECDSA", namedCurve: "P-256" },
     false,
     ["sign"]

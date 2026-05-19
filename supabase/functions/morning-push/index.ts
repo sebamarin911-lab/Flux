@@ -38,10 +38,25 @@ async function createVapidJwt(audience: string): Promise<string> {
 
   const signingInput = `${encode(header)}.${encode(payload)}`;
 
-  const keyData = base64UrlDecode(VAPID_PRIVATE_KEY);
+  // Decode keys
+  const publicBytes = base64UrlDecode(VAPID_PUBLIC_KEY);
+  if (publicBytes[0] !== 4 || publicBytes.length !== 65) {
+    throw new Error(`Invalid public key format. Expected 65-byte uncompressed EC key, got ${publicBytes.length} bytes.`);
+  }
+  const xBytes = publicBytes.slice(1, 33);
+  const yBytes = publicBytes.slice(33, 65);
+
+  const jwk = {
+    kty: "EC",
+    crv: "P-256",
+    x: base64UrlEncode(xBytes),
+    y: base64UrlEncode(yBytes),
+    d: VAPID_PRIVATE_KEY,
+  };
+
   const cryptoKey = await crypto.subtle.importKey(
-    "pkcs8",
-    keyData,
+    "jwk",
+    jwk,
     { name: "ECDSA", namedCurve: "P-256" },
     false,
     ["sign"]

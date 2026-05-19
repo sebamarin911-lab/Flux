@@ -72,7 +72,7 @@ Reglas:
 - Si su ánimo es alto, sé enérgico y motivador.
 - Devuelve únicamente el texto del saludo en un JSON con formato exacto: {"greeting": "tu mensaje aquí"}`;
 
-            const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
+            const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
             const geminiResponse = await fetch(geminiUrl, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
