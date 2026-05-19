@@ -9,8 +9,16 @@ CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog;
 -- 2. Habilitar la extensión de peticiones web HTTP (pg_net)
 CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA public;
 
--- 3. Desprogramar de forma segura cualquier cron previo si existe
-DELETE FROM cron.job WHERE jobname = 'morning-brief-cron';
+-- 3. Desprogramar de forma segura cualquier cron previo si existe sin lanzar errores si no existe
+DO $$
+BEGIN
+  PERFORM cron.unschedule('morning-brief-cron');
+EXCEPTION
+  WHEN OTHERS THEN
+    -- Ignorar si la tarea no existe o no se puede desprogramar
+    NULL;
+END;
+$$;
 
 -- 4. Programar la invocación diaria a las 11:30 UTC (07:30 AM en horario de invierno de Chile, UTC-4)
 -- Modifica '11:30' si deseas cambiar la hora (ej: '10:30' para UTC-3 en horario de verano).
