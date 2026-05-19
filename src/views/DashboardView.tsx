@@ -6,6 +6,9 @@ import { Calendar, Activity, Flame, Trophy, ArrowRight, Clock, MapPin, Zap, Brai
 import { format, parseISO, isToday, isBefore, startOfWeek, differenceInMinutes, addMinutes, startOfMinute } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useAppContext } from '@/context/AppContext';
+import { fetchCompletedEvents, saveEventCompletion } from '@/lib/completedEvents';
+import { ConfirmationDialog } from '@/components/ui/ConfirmationDialog';
+import { logger } from '@/lib/logger';
 
 export function DashboardView() {
   const { recesoUniversitario } = useAppContext();
@@ -21,11 +24,40 @@ export function DashboardView() {
       return !(locationEmpty || hasAcademicKeyword);
     });
   }, [rawEvents, recesoUniversitario]);
+
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState('');
   const [todayMentalScore, setTodayMentalScore] = useState<number | null>(null);
   const [weeklyLogCount, setWeeklyLogCount] = useState(0);
   const [calendarError, setCalendarError] = useState<string | null>(null);
+  const [eventStatus, setEventStatus] = useState<Record<string, boolean>>({});
+
+  // Confirmation Dialog States
+  const [deleteDialog, setDeleteDialog] = useState<{
+    isOpen: boolean;
+    eventId: string;
+    summary: string;
+  }>({
+    isOpen: false,
+    eventId: '',
+    summary: ''
+  });
+
+  const [rescheduleDialog, setRescheduleDialog] = useState<{
+    isOpen: boolean;
+    eventId: string;
+    summary: string;
+    suggestedTime: string;
+    reason: string;
+    eventToDelete: any;
+  }>({
+    isOpen: false,
+    eventId: '',
+    summary: '',
+    suggestedTime: '',
+    reason: '',
+    eventToDelete: null
+  });
 
   useEffect(() => {
     loadDashboard();
@@ -63,6 +95,10 @@ export function DashboardView() {
         if (weekLogs) setWeeklyLogCount(weekLogs.length);
       }
 
+      // Load completed events from DB / localStorage
+      const statusMap = await fetchCompletedEvents();
+      setEventStatus(statusMap);
+
       // Load events
       try {
         const data = await fetchWeekEvents();
@@ -92,11 +128,25 @@ export function DashboardView() {
     }
   }
 
-  const handleDeleteEvent = async (id: string) => {
+  const handleDeleteEventClick = (id: string) => {
     const eventToDelete = events.find(e => e.id === id);
     if (!eventToDelete) return;
+    setDeleteDialog({
+      isOpen: true,
+      eventId: id,
+      summary: eventToDelete.summary
+    });
+  };
 
-    if (!confirm(`¿Estás seguro de que quieres eliminar el evento "${eventToDelete.summary}"?`)) return;
+  const handleCancelDelete = () => {
+    setDeleteDialog({ isOpen: false, eventId: '', summary: '' });
+  };
+
+  const handleConfirmDelete = async () => {
+    const id = deleteDialog.eventId;
+    const eventToDelete = events.find(e => e.id === id);
+    setDeleteDialog({ isOpen: false, eventId: '', summary: '' });
+    if (!eventToDelete) return;
 
     setLoading(true);
     try {
@@ -111,45 +161,69 @@ export function DashboardView() {
         });
 
         if (suggestion && suggestion.suggested_time) {
-          const wantToReschedule = confirm(
-            `[IA] Sugerencia de reprogramación:\n¿Deseas postergar "${eventToDelete.summary}" a las ${suggestion.suggested_time}?\n\n` +
-            `Razón: ${suggestion.reason}\n\n` +
-            `👉 Presiona "Aceptar" para POSTERGAR / REPROGRAMAR el evento.\n` +
-            `👉 Presiona "Cancelar" para ELIMINAR el evento de forma definitiva.`
-          );
-
-          if (wantToReschedule) {
-            const baseDate = parseISO(eventToDelete.start.dateTime || eventToDelete.start.date);
-            const [hours, mins] = suggestion.suggested_time.split(':').map(Number);
-            const newStart = startOfMinute(baseDate);
-            newStart.setHours(hours, mins);
-            
-            const duration = eventToDelete.end?.dateTime 
-              ? differenceInMinutes(parseISO(eventToDelete.end.dateTime), parseISO(eventToDelete.start.dateTime))
-              : 60;
-            
-            const newEnd = addMinutes(newStart, duration);
-
-            await updateEvent(id, {
-              summary: eventToDelete.summary,
-              startTime: newStart,
-              endTime: newEnd
-            });
-            rescheduled = true;
-          }
+          setRescheduleDialog({
+            isOpen: true,
+            eventId: id,
+            summary: eventToDelete.summary,
+            suggestedTime: suggestion.suggested_time,
+            reason: suggestion.reason,
+            eventToDelete
+          });
+          return; // Retornamos temprano, el modal de reprogramación manejará el resto
         }
       } catch (geminiErr) {
         console.warn('No se pudo obtener sugerencia de la IA, eliminando de forma clásica:', geminiErr);
       }
 
-      // 2. Si no se reagendó, se elimina definitivamente
-      if (!rescheduled) {
-        await deleteEvent(id);
-      }
-      
+      // 2. Si no hay sugerencia de la IA, se elimina definitivamente
+      await deleteEvent(id);
       loadDashboard();
     } catch (err) {
-      alert('Error al procesar el evento');
+      alert('Error al eliminar el evento');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConfirmReschedule = async () => {
+    const { eventId, summary, suggestedTime, eventToDelete } = rescheduleDialog;
+    setRescheduleDialog(prev => ({ ...prev, isOpen: false }));
+    setLoading(true);
+    try {
+      const baseDate = parseISO(eventToDelete.start.dateTime || eventToDelete.start.date);
+      const [hours, mins] = suggestedTime.split(':').map(Number);
+      const newStart = startOfMinute(baseDate);
+      newStart.setHours(hours, mins);
+      
+      const duration = eventToDelete.end?.dateTime 
+        ? differenceInMinutes(parseISO(eventToDelete.end.dateTime), parseISO(eventToDelete.start.dateTime))
+        : 60;
+      
+      const newEnd = addMinutes(newStart, duration);
+
+      await updateEvent(eventId, {
+        summary: summary,
+        startTime: newStart,
+        endTime: newEnd
+      });
+      loadDashboard();
+    } catch (err) {
+      alert('Error al reprogramar el evento');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeclineReschedule = async () => {
+    const { eventId } = rescheduleDialog;
+    setRescheduleDialog(prev => ({ ...prev, isOpen: false }));
+    setLoading(true);
+    try {
+      // El usuario rechaza la postergación y prefiere eliminar definitivamente
+      await deleteEvent(eventId);
+      loadDashboard();
+    } catch (err) {
+      alert('Error al eliminar el evento');
     } finally {
       setLoading(false);
     }
@@ -184,12 +258,17 @@ export function DashboardView() {
     }
   };
 
-  const toggleEventComplete = (id: string) => {
-    const saved = localStorage.getItem('flux_event_status');
-    const eventStatus: Record<string, boolean> = saved ? JSON.parse(saved) : {};
-    eventStatus[id] = !eventStatus[id];
-    localStorage.setItem('flux_event_status', JSON.stringify(eventStatus));
-    // Trigger re-render by reloading dashboard or local state
+  const toggleEventComplete = async (id: string) => {
+    const currentStatus = !!eventStatus[id];
+    const newStatus = !currentStatus;
+    
+    // UI instantánea
+    setEventStatus(prev => ({ ...prev, [id]: newStatus }));
+    
+    // DB & LocalStorage
+    await saveEventCompletion(id, newStatus);
+    
+    // Recargar métricas del dashboard
     loadDashboard();
   };
 
@@ -233,11 +312,8 @@ export function DashboardView() {
     return `${days} día${days > 1 ? 's' : ''}`;
   }, [nextEvent]);
 
-  // Completed events from localStorage
+  // Completed events from local state
   const completedStreaks = useMemo(() => {
-    const saved = localStorage.getItem('flux_event_status');
-    const eventStatus: Record<string, boolean> = saved ? JSON.parse(saved) : {};
-    
     let gym = 0;
     let baby = 0;
 
@@ -249,7 +325,7 @@ export function DashboardView() {
     });
 
     return { gym, baby };
-  }, [events]);
+  }, [events, eventStatus]);
 
   // Mental score emoji
   const mentalEmoji = (score: number | null) => {
@@ -262,10 +338,8 @@ export function DashboardView() {
 
   // Today's completed count
   const todayCompletedCount = useMemo(() => {
-    const saved = localStorage.getItem('flux_event_status');
-    const eventStatus: Record<string, boolean> = saved ? JSON.parse(saved) : {};
     return todayEvents.filter(e => eventStatus[e.id]).length;
-  }, [todayEvents]);
+  }, [todayEvents, eventStatus]);
 
   if (loading) {
     return (
@@ -308,11 +382,26 @@ export function DashboardView() {
             </div>
           </div>
           <button 
-            onClick={() => {
-              localStorage.removeItem('google_provider_token');
-              supabase.auth.signOut().then(() => navigate('/'));
+            onClick={async () => {
+              try {
+                logger.info('Auth', 'Initiating Google Calendar silent/fast reconnection...');
+                await supabase.auth.signInWithOAuth({
+                  provider: 'google',
+                  options: {
+                    redirectTo: window.location.origin,
+                    scopes: 'https://www.googleapis.com/auth/calendar',
+                    queryParams: {
+                      access_type: 'offline',
+                      prompt: 'consent',
+                    },
+                  },
+                });
+              } catch (err) {
+                logger.error('Auth', 'Error initiating Google reconnection', err);
+                alert('No se pudo iniciar la reconexión. Inténtalo de nuevo.');
+              }
             }}
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm"
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer whitespace-nowrap"
           >
             Reconectar
           </button>
@@ -358,42 +447,47 @@ export function DashboardView() {
 
         {/* Today Progress */}
         <div className="bg-white dark:bg-surface-950 p-5 rounded-2xl border border-surface-100 dark:border-surface-800 shadow-sm">
-          <p className="text-surface-500 dark:text-surface-400 text-xs font-medium uppercase tracking-wider mb-2">Hoy</p>
-          <div className="flex items-end gap-1">
-            <span className="text-3xl font-display font-bold text-surface-900 dark:text-surface-50">{todayCompletedCount}</span>
-            <span className="text-surface-400 text-sm mb-1">/ {todayEvents.length}</span>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-surface-400 uppercase tracking-wider">Completado Hoy</span>
+            <Trophy className="w-4 h-4 text-flux-500" />
           </div>
-          <p className="text-xs text-surface-500 dark:text-surface-400 mt-1">Eventos completados</p>
-          {todayEvents.length > 0 && (
-            <div className="mt-3 h-2 bg-surface-100 dark:bg-surface-800 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-gradient-to-r from-flux-400 to-flux-500 rounded-full transition-all duration-500"
-                style={{ width: `${(todayCompletedCount / todayEvents.length) * 100}%` }}
-              ></div>
-            </div>
-          )}
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-3xl font-bold text-surface-900 dark:text-surface-50">
+              {todayCompletedCount}
+            </span>
+            <span className="text-sm text-surface-400">/ {todayEvents.length}</span>
+          </div>
+          <div className="w-full bg-surface-100 dark:bg-surface-800 h-1.5 rounded-full mt-3 overflow-hidden">
+            <div 
+              className="bg-flux-500 h-full rounded-full transition-all duration-500"
+              style={{ width: `${todayEvents.length > 0 ? (todayCompletedCount / todayEvents.length) * 100 : 0}%` }}
+            ></div>
+          </div>
         </div>
 
-        {/* Mental State */}
+        {/* Mental Health */}
         <div className="bg-white dark:bg-surface-950 p-5 rounded-2xl border border-surface-100 dark:border-surface-800 shadow-sm">
-          <p className="text-surface-500 dark:text-surface-400 text-xs font-medium uppercase tracking-wider mb-2">Estado Mental</p>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-surface-400 uppercase tracking-wider">Estado Mental</span>
+            <Activity className="w-4 h-4 text-purple-500" />
+          </div>
           <div className="flex items-center gap-2">
             <span className="text-3xl">{mentalEmoji(todayMentalScore)}</span>
             <div>
-              {todayMentalScore !== null ? (
-                <p className="text-sm font-semibold text-surface-900 dark:text-surface-50">
-                  {todayMentalScore <= 1 ? 'Agotado' : todayMentalScore <= 2 ? 'Normal' : todayMentalScore <= 4 ? 'En Paz' : 'Con Energía'}
-                </p>
-              ) : (
-                <Link to="/wellbeing" className="text-sm font-medium text-flux-600 dark:text-flux-400 hover:underline">
-                  Registrar →
-                </Link>
-              )}
+              <p className="text-sm font-bold text-surface-900 dark:text-surface-50">
+                {todayMentalScore !== null ? `${todayMentalScore} / 5` : 'Sin Registro'}
+              </p>
+              <p className="text-[10px] text-surface-400">
+                {weeklyLogCount} registros esta semana
+              </p>
             </div>
           </div>
-          <p className="text-xs text-surface-500 dark:text-surface-400 mt-2">
-            {weeklyLogCount > 0 ? `${weeklyLogCount} registro${weeklyLogCount > 1 ? 's' : ''} esta semana` : 'Sin registros esta semana'}
-          </p>
+          <Link 
+            to="/wellbeing"
+            className="text-[11px] font-semibold text-flux-600 dark:text-flux-400 hover:underline flex items-center gap-0.5 mt-2.5"
+          >
+            Registrar ahora <ArrowRight className="w-3 h-3" />
+          </Link>
         </div>
       </div>
 
@@ -417,73 +511,84 @@ export function DashboardView() {
                 const start = event.start.dateTime;
                 const end = event.end.dateTime;
                 const isNow = start && new Date(start) <= new Date() && new Date(end) > new Date();
-                
-                const saved = localStorage.getItem('flux_event_status');
-                const eventStatus: Record<string, boolean> = saved ? JSON.parse(saved) : {};
-                const isCompleted = eventStatus[event.id];
+                const isCompleted = eventStatus[event.id] || false;
 
                 return (
                   <div 
                     key={event.id}
-                    className={`flex items-center gap-4 p-3.5 rounded-xl border transition-all group ${
+                    className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 p-3.5 rounded-xl border transition-all group ${
                       isNow 
                         ? 'border-flux-500/50 bg-flux-50/50 dark:bg-flux-900/20 shadow-sm' 
                         : 'border-surface-100 dark:border-surface-800 hover:bg-surface-50 dark:hover:bg-surface-900/50'
                     } ${isCompleted ? 'opacity-60 bg-surface-50/50 grayscale-[0.5]' : ''}`}
                   >
-                    <div className={`w-1 self-stretch rounded-full ${isNow ? 'bg-flux-500 animate-pulse' : isCompleted ? 'bg-green-500' : 'bg-surface-200 dark:bg-surface-700'}`}></div>
-                    <div className="flex-shrink-0 text-center min-w-[3rem]">
-                      {start ? (
-                        <>
-                          <p className={`text-sm font-bold ${isNow ? 'text-flux-600 dark:text-flux-400' : 'text-surface-900 dark:text-surface-50'}`}>
-                            {format(parseISO(start), 'HH:mm')}
+                    {/* Event main section */}
+                    <div className="flex items-center gap-3.5 flex-1 min-w-0 w-full">
+                      <div className={`w-1 self-stretch rounded-full flex-shrink-0 ${isNow ? 'bg-flux-500 animate-pulse' : isCompleted ? 'bg-green-500' : 'bg-surface-200 dark:bg-surface-700'}`}></div>
+                      <div className="flex-shrink-0 text-center min-w-[3.5rem]">
+                        {start ? (
+                          <>
+                            <p className={`text-sm font-bold ${isNow ? 'text-flux-600 dark:text-flux-400' : 'text-surface-900 dark:text-surface-50'}`}>
+                              {format(parseISO(start), 'HH:mm')}
+                            </p>
+                            <p className="text-[10px] text-surface-400">{format(parseISO(end), 'HH:mm')}</p>
+                          </>
+                        ) : (
+                          <p className="text-xs text-surface-500">Todo el día</p>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className={`font-semibold truncate ${isNow ? 'text-flux-700 dark:text-flux-300' : 'text-surface-900 dark:text-surface-100'} ${isCompleted ? 'line-through text-surface-400' : ''}`}>
+                            {event.summary}
                           </p>
-                          <p className="text-[10px] text-surface-400">{format(parseISO(end), 'HH:mm')}</p>
-                        </>
-                      ) : (
-                        <p className="text-xs text-surface-500">Todo el día</p>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className={`font-medium truncate ${isNow ? 'text-flux-700 dark:text-flux-300' : 'text-surface-900 dark:text-surface-100'} ${isCompleted ? 'line-through text-surface-400' : ''}`}>
-                        {event.summary}
-                      </p>
-                      {event.location && (
-                        <p className="text-xs text-surface-500 dark:text-surface-400 flex items-center gap-1 mt-0.5 truncate">
-                          <MapPin className="w-3 h-3" /> {event.location}
-                        </p>
-                      )}
+                          {isNow && !isCompleted && (
+                            <span className="flex-shrink-0 text-[9px] font-extrabold uppercase tracking-wider bg-flux-500 text-white px-1.5 py-0.5 rounded">
+                              Ahora
+                            </span>
+                          )}
+                        </div>
+                        {event.location && (
+                          <p className="text-xs text-surface-500 dark:text-surface-400 flex items-center gap-1 mt-0.5 truncate">
+                            <MapPin className="w-3 h-3" /> {event.location}
+                          </p>
+                        )}
+                      </div>
                     </div>
                     
-                    <div className="flex items-center gap-1.5 flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 opacity-100 transition-opacity">
+                    {/* Event action buttons */}
+                    <div className="flex items-center gap-2 w-full sm:w-auto justify-end border-t border-surface-100 dark:border-surface-800/40 pt-2 sm:border-0 sm:pt-0 flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 opacity-100 transition-opacity">
                       <button 
                         onClick={() => toggleEventComplete(event.id)}
-                        className={`p-2 rounded-lg transition-colors ${isCompleted ? 'text-green-600 bg-green-50 dark:bg-green-900/30' : 'text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800'}`}
+                        className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-2 px-3 sm:p-2 rounded-xl transition-colors text-xs sm:text-sm font-medium cursor-pointer ${
+                          isCompleted 
+                            ? 'text-green-600 bg-green-50 dark:bg-green-900/30' 
+                            : 'text-surface-600 dark:text-surface-300 bg-surface-50 dark:bg-surface-800 hover:bg-surface-100 dark:hover:bg-surface-700 sm:bg-transparent sm:dark:bg-transparent'
+                        }`}
                         title="Completar"
                       >
                         <CheckCircle2 className="w-4 h-4" />
+                        <span className="sm:hidden">Completar</span>
                       </button>
+                      
                       <button 
                         onClick={() => handleEditEvent(event)}
-                        className="p-2 text-surface-400 hover:text-flux-600 hover:bg-flux-50 dark:hover:bg-flux-900/30 rounded-lg transition-colors"
+                        className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-2 px-3 sm:p-2 text-xs sm:text-sm font-medium text-surface-600 dark:text-surface-300 bg-surface-50 dark:bg-surface-800 hover:text-flux-600 hover:bg-flux-50 dark:hover:bg-flux-900/30 rounded-xl transition-colors sm:bg-transparent sm:dark:bg-transparent cursor-pointer"
                         title="Editar"
                       >
                         <Pencil className="w-4 h-4" />
+                        <span className="sm:hidden">Editar</span>
                       </button>
+                      
                       <button 
-                        onClick={() => handleDeleteEvent(event.id)}
-                        className="p-2 text-surface-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                        onClick={() => handleDeleteEventClick(event.id)}
+                        className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-2 px-3 sm:p-2 text-xs sm:text-sm font-medium text-surface-600 dark:text-surface-300 bg-surface-50 dark:bg-surface-800 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-xl transition-colors sm:bg-transparent sm:dark:bg-transparent cursor-pointer"
                         title="Eliminar"
                       >
                         <Trash2 className="w-4 h-4" />
+                        <span className="sm:hidden">Eliminar</span>
                       </button>
                     </div>
-
-                    {isNow && !isCompleted && (
-                      <span className="flex-shrink-0 text-[10px] font-bold uppercase tracking-wider bg-flux-500 text-white px-2 py-1 rounded-md">
-                        Ahora
-                      </span>
-                    )}
                   </div>
                 );
               })}
@@ -558,6 +663,50 @@ export function DashboardView() {
           </div>
         </div>
       </div>
+
+      {/* Confirmation Dialogs */}
+      <ConfirmationDialog
+        isOpen={deleteDialog.isOpen}
+        title="¿Eliminar evento?"
+        message={
+          <p>
+            ¿Estás seguro de que deseas eliminar el evento <strong>"{deleteDialog.summary}"</strong>?
+          </p>
+        }
+        confirmLabel="Eliminar"
+        cancelLabel="Cancelar"
+        confirmVariant="danger"
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
+        onClose={handleCancelDelete}
+      />
+
+      <ConfirmationDialog
+        isOpen={rescheduleDialog.isOpen}
+        title="🤖 Sugerencia de la IA"
+        isAiSuggestion={true}
+        message={
+          <div className="space-y-2">
+            <p>
+              ¿Deseas postergar <strong>"{rescheduleDialog.summary}"</strong> a las <strong>{rescheduleDialog.suggestedTime}</strong>?
+            </p>
+            <div className="p-3 bg-purple-50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/30 rounded-xl text-xs sm:text-sm text-purple-700 dark:text-purple-300 italic">
+              💡 Razón: {rescheduleDialog.reason}
+            </div>
+            <p className="text-xs text-surface-400 mt-2 leading-relaxed">
+              👉 Presiona <strong>"Aceptar"</strong> para postergar el evento en esa hora.
+              <br />
+              👉 Presiona <strong>"Eliminar"</strong> para quitarlo de forma definitiva.
+            </p>
+          </div>
+        }
+        confirmLabel="Aceptar"
+        cancelLabel="Eliminar"
+        confirmVariant="primary"
+        onConfirm={handleConfirmReschedule}
+        onCancel={handleDeclineReschedule}
+        onClose={() => setRescheduleDialog(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

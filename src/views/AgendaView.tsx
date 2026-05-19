@@ -5,6 +5,8 @@ import { format, parseISO, isToday, addDays, addHours, eachDayOfInterval, startO
 import { es } from 'date-fns/locale';
 import { startEventNotificationScheduler, stopEventNotificationScheduler } from '@/lib/notifications';
 import { useAppContext } from '@/context/AppContext';
+import { fetchCompletedEvents, saveEventCompletion } from '@/lib/completedEvents';
+import { ConfirmationDialog } from '@/components/ui/ConfirmationDialog';
 
 export function AgendaView() {
   const { recesoUniversitario, setRecesoUniversitario } = useAppContext();
@@ -33,30 +35,47 @@ export function AgendaView() {
   const [expandedDay, setExpandedDay] = useState<string | null>(format(new Date(), 'yyyy-MM-dd'));
 
   // Event completion state
-  const [eventStatus, setEventStatus] = useState<Record<string, boolean>>(() => {
-    const saved = localStorage.getItem('flux_event_status');
-    return saved ? JSON.parse(saved) : {};
+  const [eventStatus, setEventStatus] = useState<Record<string, boolean>>({});
+
+  // Confirmation Dialog States
+  const [deleteDialog, setDeleteDialog] = useState<{
+    isOpen: boolean;
+    eventId: string;
+    summary: string;
+  }>({
+    isOpen: false,
+    eventId: '',
+    summary: ''
   });
 
-  useEffect(() => {
-    localStorage.setItem('flux_event_status', JSON.stringify(eventStatus));
-  }, [eventStatus]);
-
-  const toggleEventStatus = (eventId: string) => {
-    setEventStatus(prev => ({
-      ...prev,
-      [eventId]: !prev[eventId]
-    }));
-  };
+  const [rescheduleDialog, setRescheduleDialog] = useState<{
+    isOpen: boolean;
+    eventId: string;
+    summary: string;
+    suggestedTime: string;
+    reason: string;
+    eventToDelete: any;
+  }>({
+    isOpen: false,
+    eventId: '',
+    summary: '',
+    suggestedTime: '',
+    reason: '',
+    eventToDelete: null
+  });
 
   async function loadEvents() {
     setLoading(true);
     try {
+      // Sync completed events status from DB/localStorage
+      const statusMap = await fetchCompletedEvents();
+      setEventStatus(statusMap);
+
       const data = await fetchWeekEvents();
       
       // Deduplicate events by start time, prioritizing those with a location (Sala)
       const uniqueEventsMap = data.reduce((acc: any, event: any) => {
-        const timeKey = event.start.dateTime || event.start.date;
+        const timeKey = (event.start.dateTime || event.start.date) + (event.summary || '');
         if (!acc[timeKey] || (event.location && !acc[timeKey].location)) {
           acc[timeKey] = event;
         }
@@ -64,12 +83,12 @@ export function AgendaView() {
       }, {});
       
       const sortedEvents = Object.values(uniqueEventsMap).sort((a: any, b: any) => {
-        const timeA = a.start.dateTime || a.start.date;
-        const timeB = b.start.dateTime || b.start.date;
+        const timeA = (a as any).start.dateTime || (a as any).start.date;
+        const timeB = (b as any).start.dateTime || (b as any).start.date;
         return new Date(timeA).getTime() - new Date(timeB).getTime();
       });
 
-      setRawEvents(sortedEvents);
+      setRawEvents(sortedEvents as any[]);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -138,13 +157,102 @@ export function AgendaView() {
     }
   };
 
-  const handleDeleteEvent = async (id: string) => {
-    if (!confirm('¿Estás seguro de que quieres eliminar este evento?')) return;
+  const handleDeleteEventClick = (id: string) => {
+    const eventToDelete = events.find(e => e.id === id);
+    if (!eventToDelete) return;
+    setDeleteDialog({
+      isOpen: true,
+      eventId: id,
+      summary: eventToDelete.summary
+    });
+  };
+
+  const handleCancelDelete = () => {
+    setDeleteDialog({ isOpen: false, eventId: '', summary: '' });
+  };
+
+  const handleConfirmDelete = async () => {
+    const id = deleteDialog.eventId;
+    const eventToDelete = events.find(e => e.id === id);
+    setDeleteDialog({ isOpen: false, eventId: '', summary: '' });
+    if (!eventToDelete) return;
+
+    setLoading(true);
     try {
+      // 1. Intentar obtener la sugerencia de la IA
+      try {
+        const { getRescheduleSuggestion } = await import('@/lib/gemini');
+        const suggestion = await getRescheduleSuggestion({ 
+          current: eventToDelete.summary, 
+          history: []
+        });
+
+        if (suggestion && suggestion.suggested_time) {
+          setRescheduleDialog({
+            isOpen: true,
+            eventId: id,
+            summary: eventToDelete.summary,
+            suggestedTime: suggestion.suggested_time,
+            reason: suggestion.reason,
+            eventToDelete
+          });
+          return; // Retornamos temprano, el modal de reprogramación manejará el resto
+        }
+      } catch (geminiErr) {
+        console.warn('No se pudo obtener sugerencia de la IA, eliminando de forma clásica:', geminiErr);
+      }
+
+      // 2. Si no hay sugerencia de la IA, se elimina definitivamente
       await deleteEvent(id);
       loadEvents();
     } catch (err) {
       alert('Error al eliminar el evento');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConfirmReschedule = async () => {
+    const { eventId, summary, suggestedTime, eventToDelete } = rescheduleDialog;
+    setRescheduleDialog(prev => ({ ...prev, isOpen: false }));
+    setLoading(true);
+    try {
+      const baseDate = parseISO(eventToDelete.start.dateTime || eventToDelete.start.date);
+      const [hours, mins] = suggestedTime.split(':').map(Number);
+      const newStart = startOfMinute(baseDate);
+      newStart.setHours(hours, mins);
+      
+      const duration = eventToDelete.end?.dateTime 
+        ? differenceInMinutes(parseISO(eventToDelete.end.dateTime), parseISO(eventToDelete.start.dateTime))
+        : 60;
+      
+      const newEnd = addMinutes(newStart, duration);
+
+      await updateEvent(eventId, {
+        summary: summary,
+        startTime: newStart,
+        endTime: newEnd
+      });
+      loadEvents();
+    } catch (err) {
+      alert('Error al reprogramar el evento');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeclineReschedule = async () => {
+    const { eventId } = rescheduleDialog;
+    setRescheduleDialog(prev => ({ ...prev, isOpen: false }));
+    setLoading(true);
+    try {
+      // El usuario rechaza la postergación y prefiere eliminar definitivamente
+      await deleteEvent(eventId);
+      loadEvents();
+    } catch (err) {
+      alert('Error al eliminar el evento');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -177,6 +285,17 @@ export function AgendaView() {
     }
   };
 
+  const toggleEventStatus = async (eventId: string) => {
+    const current = !eventStatus[eventId];
+    // UI instantánea
+    setEventStatus(prev => ({
+      ...prev,
+      [eventId]: current
+    }));
+    // Sincronizar en DB/LocalStorage
+    await saveEventCompletion(eventId, current);
+  };
+
   // Group events by day
   const groupedEvents = events.reduce((acc: any, event: any) => {
     const dateStr = format(parseISO(event.start.dateTime || event.start.date), 'yyyy-MM-dd');
@@ -189,18 +308,17 @@ export function AgendaView() {
     const start = event.start.dateTime || event.start.date;
     const end = event.end.dateTime || event.end.date;
     const isAllDay = !event.start.dateTime;
-
     const isCompleted = eventStatus[event.id] || false;
 
     return (
-      <div className={`p-4 bg-white dark:bg-surface-950 rounded-xl border ${isCompleted ? 'border-flux-500/50 opacity-70' : 'border-surface-100 dark:border-surface-800'} shadow-sm hover:shadow-md transition-all group relative flex flex-col`}>
-        <div className={`absolute left-0 top-0 bottom-0 w-1 ${isCompleted ? 'bg-flux-500' : 'bg-flux-400'}`}></div>
+      <div className={`p-4 bg-white dark:bg-surface-950 rounded-2xl border ${isCompleted ? 'border-flux-500/50 opacity-70' : 'border-surface-100 dark:border-surface-800'} shadow-sm hover:shadow-md transition-all group relative flex flex-col`}>
+        <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-2xl ${isCompleted ? 'bg-green-500' : 'bg-flux-400'}`}></div>
         <div className="flex items-start gap-3">
           <button 
             onClick={() => toggleEventStatus(event.id)}
-            className={`flex-shrink-0 mt-0.5 w-5 h-5 rounded border flex items-center justify-center transition-colors ${
+            className={`flex-shrink-0 mt-0.5 w-5 h-5 rounded-md border flex items-center justify-center transition-colors cursor-pointer ${
               isCompleted 
-                ? 'bg-flux-500 border-flux-500 text-white' 
+                ? 'bg-green-500 border-green-500 text-white' 
                 : 'border-surface-300 dark:border-surface-600 hover:border-flux-400'
             }`}
           >
@@ -208,13 +326,13 @@ export function AgendaView() {
           </button>
           <div className="flex-1 min-w-0">
             <div className="flex justify-between items-start mb-1">
-              <h3 className={`font-semibold ${isCompleted ? 'text-surface-400 line-through' : 'text-surface-900 dark:text-surface-50'}`}>{event.summary}</h3>
-              <span className={`text-xs font-medium px-2 py-1 rounded-md whitespace-nowrap ml-2 ${isCompleted ? 'bg-surface-100 dark:bg-surface-800 text-surface-500' : 'bg-flux-50 dark:bg-flux-900/30 text-flux-600 dark:text-flux-400'}`}>
+              <h3 className={`font-semibold ${isCompleted ? 'text-surface-400 line-through font-normal' : 'text-surface-900 dark:text-surface-50 font-medium'}`}>{event.summary}</h3>
+              <span className={`text-xs font-semibold px-2.5 py-1 rounded-lg whitespace-nowrap ml-2 ${isCompleted ? 'bg-surface-100 dark:bg-surface-800 text-surface-500' : 'bg-flux-50 dark:bg-flux-900/30 text-flux-600 dark:text-flux-400'}`}>
                 {isAllDay ? 'Todo el día' : `${format(parseISO(start), 'HH:mm')} - ${format(parseISO(end), 'HH:mm')}`}
               </span>
             </div>
             {event.location && (
-              <div className={`flex items-center gap-1.5 text-xs mt-2 w-fit px-2 py-1 rounded ${isCompleted ? 'text-surface-400 bg-surface-50/50 dark:bg-surface-900/50' : 'text-surface-500 bg-surface-50 dark:bg-surface-900'}`}>
+              <div className={`flex items-center gap-1.5 text-xs mt-2 w-fit px-2 py-1 rounded-md ${isCompleted ? 'text-surface-400 bg-surface-50/50 dark:bg-surface-900/50' : 'text-surface-500 bg-surface-50 dark:bg-surface-900'}`}>
                 <MapPin className="w-3.5 h-3.5" />
                 <span className="truncate">{event.location}</span>
               </div>
@@ -222,28 +340,39 @@ export function AgendaView() {
           </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="mt-4 pt-3 border-t border-surface-100 dark:border-surface-800 flex items-center justify-end gap-2 flex-wrap md:opacity-0 md:group-hover:opacity-100 opacity-100 transition-opacity">
+        {/* Action Buttons (Super responsive and elegant) */}
+        <div className="mt-4 pt-3 border-t border-surface-100 dark:border-surface-800/40 flex items-center gap-2 w-full justify-between sm:justify-end flex-wrap md:opacity-0 md:group-hover:opacity-100 opacity-100 transition-opacity">
+          <button 
+            onClick={() => toggleEventStatus(event.id)}
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-2 px-3 sm:py-1.5 sm:px-3 rounded-xl transition-colors text-xs font-semibold cursor-pointer ${
+              isCompleted 
+                ? 'text-green-600 bg-green-50 dark:bg-green-900/30' 
+                : 'text-surface-600 dark:text-surface-300 bg-surface-50 dark:bg-surface-800 hover:bg-surface-100 dark:hover:bg-surface-700 sm:bg-transparent sm:dark:bg-transparent'
+            }`}
+            title="Completar"
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            <span className="sm:hidden">Completar</span>
+            <span className="hidden sm:inline">{isCompleted ? 'Completado' : 'Completar'}</span>
+          </button>
+          
           <button 
             onClick={() => handleEditEvent(event)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-surface-600 dark:text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800 rounded-lg transition-colors"
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-2 px-3 sm:py-1.5 sm:px-3 text-xs font-semibold text-surface-600 dark:text-surface-300 bg-surface-50 dark:bg-surface-800 hover:text-flux-600 hover:bg-flux-50 dark:hover:bg-flux-900/30 rounded-xl transition-colors sm:bg-transparent sm:dark:bg-transparent cursor-pointer"
+            title="Editar"
           >
-            <Pencil className="w-3.5 h-3.5" /> Editar
+            <Pencil className="w-4 h-4" />
+            <span>Editar</span>
           </button>
+          
           <button 
-            onClick={() => handleDeleteEvent(event.id)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+            onClick={() => handleDeleteEventClick(event.id)}
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-2 px-3 sm:py-1.5 sm:px-3 text-xs font-semibold text-surface-600 dark:text-surface-300 bg-surface-50 dark:bg-surface-800 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-xl transition-colors sm:bg-transparent sm:dark:bg-transparent cursor-pointer"
+            title="Eliminar"
           >
-            <Trash2 className="w-3.5 h-3.5" /> Eliminar
+            <Trash2 className="w-4 h-4" />
+            <span>Eliminar</span>
           </button>
-          {!isCompleted && (
-            <button 
-              onClick={() => toggleEventStatus(event.id)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-flux-500 text-white hover:bg-flux-600 rounded-lg transition-colors shadow-sm"
-            >
-              <CheckCircle2 className="w-3.5 h-3.5" /> Completar
-            </button>
-          )}
         </div>
       </div>
     );
@@ -273,7 +402,7 @@ export function AgendaView() {
           </div>
           <button
             onClick={() => setShowAddForm(!showAddForm)}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-flux-500 hover:bg-flux-600 text-white rounded-xl transition-colors font-medium shadow-sm"
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-flux-500 hover:bg-flux-600 text-white rounded-xl transition-colors font-medium shadow-sm cursor-pointer text-sm"
           >
             {showAddForm ? <X className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
             {showAddForm ? 'Cancelar' : 'Añadir Evento'}
@@ -289,7 +418,7 @@ export function AgendaView() {
             </h3>
             <button 
               onClick={() => setRecesoUniversitario(!recesoUniversitario)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${recesoUniversitario ? 'bg-flux-500 text-white border-flux-500' : 'bg-surface-50 dark:bg-surface-900 text-surface-600 dark:text-surface-400 border-surface-200 dark:border-surface-800 hover:bg-surface-100 dark:hover:bg-surface-800'}`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors border cursor-pointer ${recesoUniversitario ? 'bg-flux-500 text-white border-flux-500' : 'bg-surface-50 dark:bg-surface-900 text-surface-600 dark:text-surface-400 border-surface-200 dark:border-surface-800 hover:bg-surface-100 dark:hover:bg-surface-800'}`}
             >
               🌴 Receso Universitario
             </button>
@@ -379,7 +508,7 @@ export function AgendaView() {
               <button
                 type="submit"
                 disabled={creating}
-                className="w-full py-2.5 bg-surface-900 hover:bg-black dark:bg-surface-100 dark:hover:bg-white text-white dark:text-surface-950 font-medium rounded-lg transition-colors disabled:opacity-70 flex justify-center"
+                className="w-full py-2.5 bg-surface-900 hover:bg-black dark:bg-surface-100 dark:hover:bg-white text-white dark:text-surface-950 font-medium rounded-lg transition-colors disabled:opacity-70 flex justify-center cursor-pointer"
               >
                 {creating ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-current"></div> : 'Guardar en Google Calendar'}
               </button>
@@ -477,6 +606,50 @@ export function AgendaView() {
           </div>
         </div>
       </div>
+
+      {/* Confirmation Dialogs */}
+      <ConfirmationDialog
+        isOpen={deleteDialog.isOpen}
+        title="¿Eliminar evento?"
+        message={
+          <p>
+            ¿Estás seguro de que deseas eliminar el evento <strong>"{deleteDialog.summary}"</strong>?
+          </p>
+        }
+        confirmLabel="Eliminar"
+        cancelLabel="Cancelar"
+        confirmVariant="danger"
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
+        onClose={handleCancelDelete}
+      />
+
+      <ConfirmationDialog
+        isOpen={rescheduleDialog.isOpen}
+        title="🤖 Sugerencia de la IA"
+        isAiSuggestion={true}
+        message={
+          <div className="space-y-2">
+            <p>
+              ¿Deseas postergar <strong>"{rescheduleDialog.summary}"</strong> a las <strong>{rescheduleDialog.suggestedTime}</strong>?
+            </p>
+            <div className="p-3 bg-purple-50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/30 rounded-xl text-xs sm:text-sm text-purple-700 dark:text-purple-300 italic">
+              💡 Razón: {rescheduleDialog.reason}
+            </div>
+            <p className="text-xs text-surface-400 mt-2 leading-relaxed">
+              👉 Presiona <strong>"Aceptar"</strong> para postergar el evento en esa hora.
+              <br />
+              👉 Presiona <strong>"Eliminar"</strong> para quitarlo de forma definitiva.
+            </p>
+          </div>
+        }
+        confirmLabel="Aceptar"
+        cancelLabel="Eliminar"
+        confirmVariant="primary"
+        onConfirm={handleConfirmReschedule}
+        onCancel={handleDeclineReschedule}
+        onClose={() => setRescheduleDialog(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }
