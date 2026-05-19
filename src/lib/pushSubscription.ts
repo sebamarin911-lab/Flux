@@ -43,6 +43,12 @@ export async function subscribeToPush(): Promise<boolean> {
     let subscription = await registration.pushManager.getSubscription();
 
     if (!subscription) {
+      // 4.5 Ensure VAPID key is available
+      if (!VAPID_PUBLIC_KEY) {
+        console.error('❌ Error: VITE_VAPID_PUBLIC_KEY is not defined in the environment.');
+        return false;
+      }
+      
       // 5. Create a new push subscription using VAPID
       subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
