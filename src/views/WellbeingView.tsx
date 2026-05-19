@@ -3,6 +3,8 @@ import { supabase } from '@/lib/supabase';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { logger } from '@/lib/logger';
+import { WellbeingLogSchema } from '@/lib/validation';
 
 export function WellbeingView() {
   const [mentalScore, setMentalScore] = useState<number | null>(null);
@@ -79,16 +81,28 @@ export function WellbeingView() {
       ? `${existingNotes}\n---\n${notes}`
       : notes || existingNotes;
 
+    const payload = {
+      user_id: userData.user.id,
+      semana: today,
+      mental_score: mentalScore,
+      notas: newNotes
+    };
+
+    const validated = WellbeingLogSchema.safeParse(payload);
+    if (!validated.success) {
+      logger.error('Wellbeing', 'First wellbeing log entry validation failed', validated.error);
+      setSaveMessage({ type: 'error', text: '❌ Error: Datos de registro inválidos' });
+      setSaving(false);
+      return;
+    }
+
+    logger.info('Wellbeing', `Saving wellbeing log for date ${today}...`);
     const { error } = await supabase
       .from('wellbeing_logs')
-      .upsert({ 
-        user_id: userData.user.id, 
-        semana: today, 
-        mental_score: mentalScore, 
-        notas: newNotes 
-      }, { onConflict: 'user_id,semana' });
+      .upsert(validated.data, { onConflict: 'user_id,semana' });
 
     if (!error) {
+      logger.info('Wellbeing', `Wellbeing log for date ${today} saved successfully.`);
       await loadHistoricalData();
       if (notes.trim()) {
         setTodayLogs(prev => [...prev, notes.trim()]);
@@ -106,10 +120,21 @@ export function WellbeingView() {
             const updatedText = `${currentNotes}\n[IA] Etiquetas: ${aiData.tags.join(', ')} | Tema: ${aiData.primary_theme}`;
             
             const updatedExisting = existingNotes ? `${existingNotes}\n---\n${updatedText}` : updatedText;
-            await supabase.from('wellbeing_logs').upsert({
-              user_id: userData.user.id, semana: today, mental_score: mentalScore, notas: updatedExisting
-            }, { onConflict: 'user_id,semana' });
-            loadTodayEntry(); // refresh to show tags
+            const aiPayload = {
+              user_id: userData.user.id,
+              semana: today,
+              mental_score: mentalScore,
+              notas: updatedExisting
+            };
+
+            const validatedAI = WellbeingLogSchema.safeParse(aiPayload);
+            if (validatedAI.success) {
+              logger.info('Wellbeing', 'Saving AI auto-tag updates to wellbeing logs...');
+              await supabase.from('wellbeing_logs').upsert(validatedAI.data, { onConflict: 'user_id,semana' });
+              loadTodayEntry(); // refresh to show tags
+            } else {
+              logger.error('Wellbeing', 'AI augmented log validation failed', validatedAI.error);
+            }
           });
         });
       }

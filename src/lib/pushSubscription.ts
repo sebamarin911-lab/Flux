@@ -1,5 +1,7 @@
 // Push Subscription Manager — connects browser Push API to Supabase
 import { supabase } from './supabase';
+import { logger } from './logger';
+import { PushSubscriptionSchema } from './validation';
 
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY;
 
@@ -22,17 +24,18 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
  * Saves the subscription to Supabase so the backend can send pushes later.
  */
 export async function subscribeToPush(): Promise<boolean> {
+  logger.info('Push', 'Initiating push notification subscription process...');
   try {
     // 1. Check browser support
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      console.warn('Push notifications are not supported in this browser.');
+      logger.warn('Push', 'Push notifications are not supported in this browser environment.');
       return false;
     }
 
     // 2. Request notification permission
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') {
-      console.warn('Notification permission denied.');
+      logger.warn('Push', 'User denied notification permission request.');
       return false;
     }
 
@@ -45,10 +48,11 @@ export async function subscribeToPush(): Promise<boolean> {
     if (!subscription) {
       // 4.5 Ensure VAPID key is available
       if (!VAPID_PUBLIC_KEY) {
-        console.error('❌ Error: VITE_VAPID_PUBLIC_KEY is not defined in the environment.');
+        logger.error('Push', 'VITE_VAPID_PUBLIC_KEY is not defined in the environment.');
         return false;
       }
       
+      logger.info('Push', 'No active subscription found, generating new push credential keys...');
       // 5. Create a new push subscription using VAPID
       subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
@@ -59,10 +63,10 @@ export async function subscribeToPush(): Promise<boolean> {
     // 6. Persist the subscription in Supabase
     await saveSubscriptionToSupabase(subscription);
 
-    console.log('✅ Push subscription active');
+    logger.info('Push', 'Push subscription registered and stored in database successfully.');
     return true;
   } catch (error) {
-    console.error('Error subscribing to push:', error);
+    logger.error('Push', 'Error during subscription process setup:', error);
     return false;
   }
 }
@@ -71,6 +75,7 @@ export async function subscribeToPush(): Promise<boolean> {
  * Unsubscribe from push notifications.
  */
 export async function unsubscribeFromPush(): Promise<boolean> {
+  logger.info('Push', 'Unsubscribing user from push notifications...');
   try {
     const registration = await navigator.serviceWorker.ready;
     const subscription = await registration.pushManager.getSubscription();
@@ -78,12 +83,14 @@ export async function unsubscribeFromPush(): Promise<boolean> {
     if (subscription) {
       await subscription.unsubscribe();
       await removeSubscriptionFromSupabase(subscription.endpoint);
+      logger.info('Push', 'Push subscription successfully removed.');
+    } else {
+      logger.warn('Push', 'No subscription found to unsubscribe from.');
     }
 
-    console.log('🔕 Push subscription removed');
     return true;
   } catch (error) {
-    console.error('Error unsubscribing from push:', error);
+    logger.error('Push', 'Error during unsubscription process:', error);
     return false;
   }
 }
@@ -97,7 +104,8 @@ export async function isPushSubscribed(): Promise<boolean> {
     const registration = await navigator.serviceWorker.ready;
     const subscription = await registration.pushManager.getSubscription();
     return !!subscription;
-  } catch {
+  } catch (err) {
+    logger.error('Push', 'Failed to check active push subscription status', err);
     return false;
   }
 }
@@ -106,28 +114,48 @@ export async function isPushSubscribed(): Promise<boolean> {
 
 async function saveSubscriptionToSupabase(subscription: PushSubscription) {
   const { data: userData } = await supabase.auth.getUser();
-  if (!userData.user) return;
+  if (!userData.user) {
+    logger.error('Push', 'Failed to save subscription: No authenticated Supabase session.');
+    return;
+  }
 
   const sub = subscription.toJSON();
 
-  await supabase
+  // Validate the browser subscription model strictly before writing to DB
+  const validated = PushSubscriptionSchema.safeParse(sub);
+  if (!validated.success) {
+    logger.error('Push', 'Invalid browser push subscription payload structure', validated.error);
+    throw new Error('La suscripción generada por el navegador no cumple con el esquema requerido.');
+  }
+
+  const { error } = await supabase
     .from('push_subscriptions')
     .upsert(
       {
         user_id: userData.user.id,
-        endpoint: sub.endpoint,
-        p256dh: sub.keys?.p256dh,
-        auth: sub.keys?.auth,
+        endpoint: validated.data.endpoint,
+        p256dh: validated.data.keys.p256dh,
+        auth: validated.data.keys.auth,
         user_agent: navigator.userAgent,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'endpoint' }
     );
+
+  if (error) {
+    logger.error('Push', 'Database upsert for push subscription failed:', error);
+    throw error;
+  }
 }
 
 async function removeSubscriptionFromSupabase(endpoint: string) {
-  await supabase
+  const { error } = await supabase
     .from('push_subscriptions')
     .delete()
     .eq('endpoint', endpoint);
+
+  if (error) {
+    logger.error('Push', 'Failed to delete subscription endpoint from database:', error);
+    throw error;
+  }
 }

@@ -1,3 +1,13 @@
+import { z } from 'zod';
+import { logger } from './logger';
+import {
+  WeeklySummarySchema,
+  MorningBriefSchema,
+  RescheduleSuggestionSchema,
+  AutoTagsSchema,
+  FlowRecoverySchema
+} from './validation';
+
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 // ─── IndexedDB Cache Setup ──────────────────────────────────────────
@@ -40,7 +50,7 @@ async function getCachedResponse(key: string): Promise<any | null> {
       request.onerror = () => reject(request.error);
     });
   } catch (err) {
-    console.warn('[Gemini DB] Error reading cache', err);
+    logger.warn('Gemini DB', 'Error reading cache', err);
     return null;
   }
 }
@@ -56,7 +66,7 @@ async function setCachedResponse(key: string, data: any): Promise<void> {
       request.onerror = () => reject(request.error);
     });
   } catch (err) {
-    console.warn('[Gemini DB] Error writing cache', err);
+    logger.warn('Gemini DB', 'Error writing cache', err);
   }
 }
 
@@ -73,21 +83,26 @@ function logUsage(promptHash: string, tokensEstimados: number) {
     const logStr = localStorage.getItem('ai_usage_log') || '[]';
     const log = JSON.parse(logStr);
     log.push({ timestamp: Date.now(), promptHash, tokensEstimados });
-    // Keep only last 100 logs to prevent unbounded growth
     if (log.length > 100) log.shift();
     localStorage.setItem('ai_usage_log', JSON.stringify(log));
   } catch (e) {
-    console.warn('Could not log AI usage', e);
+    logger.warn('Gemini', 'Could not log AI usage metrics', e);
   }
 }
 
-// ─── Core HTTP Client ─────────────────────────────────────────────
-async function callGemini(prompt: string, context: any, fallback: any): Promise<any> {
+// ─── Core HTTP Client with Zod Validation ─────────────────────────────
+async function callGemini(
+  prompt: string,
+  context: any,
+  fallback: any,
+  schema?: z.ZodSchema
+): Promise<any> {
   if (!GEMINI_API_KEY) {
-    console.warn('[Gemini] API Key missing, returning fallback.');
+    logger.warn('Gemini', 'VITE_GEMINI_API_KEY is not defined, using mock fallback.');
     return fallback;
   }
 
+  logger.info('Gemini', 'Initiating call to Gemini 1.5 Flash...');
   try {
     const contextStr = JSON.stringify(context);
     const dateStr = new Date().toISOString().split('T')[0];
@@ -97,14 +112,20 @@ async function callGemini(prompt: string, context: any, fallback: any): Promise<
 
     const cached = await getCachedResponse(cacheKey);
     if (cached) {
-      console.log('[Gemini] Retornando desde caché local');
-      return cached;
+      logger.info('Gemini', 'Cache hit. Returning cached AI response.');
+      if (schema) {
+        const validated = schema.safeParse(cached);
+        if (validated.success) return validated.data;
+        logger.warn('Gemini', 'Cached item failed fresh validation, refetching...');
+      } else {
+        return cached;
+      }
     }
 
     const payload = {
       generationConfig: {
-        maxOutputTokens: 150,
-        temperature: 0.3,
+        maxOutputTokens: 180,
+        temperature: 0.25,
         responseMimeType: "application/json"
       },
       contents: [
@@ -125,27 +146,37 @@ async function callGemini(prompt: string, context: any, fallback: any): Promise<
     });
 
     if (!response.ok) {
-      throw new Error(`API Error: ${response.status}`);
+      throw new Error(`API returned HTTP ${response.status}`);
     }
 
     const data = await response.json();
     const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!resultText) {
-      throw new Error('No content returned from AI');
+      throw new Error('Empty response payload from Gemini API');
     }
 
     const parsed = JSON.parse(resultText);
-    
-    // Log usage (estimate: length / 4)
-    logUsage(hash, Math.ceil(resultText.length / 4));
-    
-    // Set cache
-    await setCachedResponse(cacheKey, parsed);
 
+    // Validate structured response schema to guarantee interface type safety
+    if (schema) {
+      const validated = schema.safeParse(parsed);
+      if (!validated.success) {
+        logger.error('Gemini', 'Output schema validation failed', validated.error);
+        return fallback;
+      }
+      
+      logUsage(hash, Math.ceil(resultText.length / 4));
+      await setCachedResponse(cacheKey, validated.data);
+      logger.info('Gemini', 'AI response successfully validated and cached.');
+      return validated.data;
+    }
+
+    logUsage(hash, Math.ceil(resultText.length / 4));
+    await setCachedResponse(cacheKey, parsed);
     return parsed;
   } catch (err) {
-    console.warn('[Gemini] Fallback activado', err);
+    logger.error('Gemini', 'Error calling API, returning safe fallback data', err);
     return fallback;
   }
 }
@@ -154,12 +185,12 @@ async function callGemini(prompt: string, context: any, fallback: any): Promise<
 
 /**
  * [1] RESUMEN SEMANAL
- * Context: { sliders: { fisico: number, mental: number }, notes: string, streak: number }
+ * Context: { sliders: { mental: number, fisico: number }, notes: string, streak: number }
  */
 export async function getWeeklySummary(context: any) {
   const prompt = "Analiza los sliders y las notas cualitativas de bienestar del usuario. Devuelve estrictamente un objeto JSON con la siguiente estructura: { trend: 'up'|'down'|'stable', top_fatigue: string, micro_tip: string, next_focus: string }. Restringe la salida a un máximo de 150 tokens. Tono: Amigo cercano y empático.";
-  const fallback = { trend: 'stable', top_fatigue: 'No determinada', micro_tip: 'Mantén el ritmo de tus hábitos base.', next_focus: 'Consistencia' };
-  return callGemini(prompt, context, fallback);
+  const fallback = WeeklySummarySchema.parse({});
+  return callGemini(prompt, context, fallback, WeeklySummarySchema);
 }
 
 /**
@@ -168,8 +199,8 @@ export async function getWeeklySummary(context: any) {
  */
 export async function getMorningBrief(context: any) {
   const prompt = "Genera una única línea de texto optimizada para una notificación push en pantalla bloqueada. Une el primer evento del día y la racha actual del usuario. Si last_mood es menor que 3, utiliza un tono calmado y sutil; de lo contrario, utiliza un tono energético. Devuelve estrictamente este formato JSON: { notification: string, tone: 'calm'|'energetic' }.";
-  const fallback = { notification: "Comienza tu día revisando tu agenda en Flux.", tone: "calm" };
-  return callGemini(prompt, context, fallback);
+  const fallback = MorningBriefSchema.parse({});
+  return callGemini(prompt, context, fallback, MorningBriefSchema);
 }
 
 /**
@@ -178,8 +209,8 @@ export async function getMorningBrief(context: any) {
  */
 export async function getRescheduleSuggestion(context: any) {
   const prompt = "Analizando el evento modificado actual y el historial de cumplimiento del usuario contenido en el contexto, propone una hora alternativa específica para este mismo día que maximice la adherencia histórica. Devuelve estrictamente el formato JSON: { suggested_time: 'HH:MM', reason: string }.";
-  const fallback = { suggested_time: '18:00', reason: 'Horario estándar de alta disponibilidad.' };
-  return callGemini(prompt, context, fallback);
+  const fallback = RescheduleSuggestionSchema.parse({});
+  return callGemini(prompt, context, fallback, RescheduleSuggestionSchema);
 }
 
 /**
@@ -188,8 +219,8 @@ export async function getRescheduleSuggestion(context: any) {
  */
 export async function getAutoTags(context: any) {
   const prompt = "Analiza el siguiente texto de reflexión personal y extrae un máximo de 3 etiquetas conceptuales o temáticas relevantes junto con el tema principal de la nota. Devuelve estrictamente el formato JSON: { tags: ['string'], primary_theme: 'string' }.";
-  const fallback = { tags: ['Bienestar'], primary_theme: 'Registro General' };
-  return callGemini(prompt, context, fallback);
+  const fallback = AutoTagsSchema.parse({});
+  return callGemini(prompt, context, fallback, AutoTagsSchema);
 }
 
 /**
@@ -198,6 +229,6 @@ export async function getAutoTags(context: any) {
  */
 export async function getFlowRecovery(context: any) {
   const prompt = "Genera una lista de 3 micro-hábitos ultra-cortos (menores a 15 minutos) diseñados específicamente para recuperar el ritmo diario o mantener la disciplina sin abrumar al usuario. Devuelve estrictamente el formato JSON: { habits: [{ title: string, duration: string, why: string }] }.";
-  const fallback = { habits: [{ title: "Planificación", duration: "5 min", why: "Revisar la agenda base para retomar control." }] };
-  return callGemini(prompt, context, fallback);
+  const fallback = FlowRecoverySchema.parse({});
+  return callGemini(prompt, context, fallback, FlowRecoverySchema);
 }
