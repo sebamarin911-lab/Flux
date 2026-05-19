@@ -93,27 +93,65 @@ export function DashboardView() {
   }
 
   const handleDeleteEvent = async (id: string) => {
-    if (!confirm('¿Estás seguro de que quieres eliminar este evento?')) return;
+    const eventToDelete = events.find(e => e.id === id);
+    if (!eventToDelete) return;
+
+    if (!confirm(`¿Estás seguro de que quieres eliminar el evento "${eventToDelete.summary}"?`)) return;
+
+    setLoading(true);
     try {
-      const eventToDelete = events.find(e => e.id === id);
-      await deleteEvent(id);
-      loadDashboard();
-      
-      if (eventToDelete) {
-        import('@/lib/gemini').then(({ getRescheduleSuggestion }) => {
-          getRescheduleSuggestion({ 
-            current: eventToDelete.summary, 
-            history: [] // Mock history for now
-          }).then(suggestion => {
-            if (suggestion && confirm(`[IA] ¿Quieres reagendar "${eventToDelete.summary}" a las ${suggestion.suggested_time}? Razón: ${suggestion.reason}`)) {
-              // Simply open Agenda for now as requested by user constraints to not build complex new UI flows
-              navigate('/agenda');
-            }
-          });
+      let rescheduled = false;
+
+      // 1. Intentar obtener la sugerencia de la IA
+      try {
+        const { getRescheduleSuggestion } = await import('@/lib/gemini');
+        const suggestion = await getRescheduleSuggestion({ 
+          current: eventToDelete.summary, 
+          history: []
         });
+
+        if (suggestion && suggestion.suggested_time) {
+          const wantToReschedule = confirm(
+            `[IA] Sugerencia de reprogramación:\n¿Deseas postergar "${eventToDelete.summary}" a las ${suggestion.suggested_time}?\n\n` +
+            `Razón: ${suggestion.reason}\n\n` +
+            `👉 Presiona "Aceptar" para POSTERGAR / REPROGRAMAR el evento.\n` +
+            `👉 Presiona "Cancelar" para ELIMINAR el evento de forma definitiva.`
+          );
+
+          if (wantToReschedule) {
+            const baseDate = parseISO(eventToDelete.start.dateTime || eventToDelete.start.date);
+            const [hours, mins] = suggestion.suggested_time.split(':').map(Number);
+            const newStart = startOfMinute(baseDate);
+            newStart.setHours(hours, mins);
+            
+            const duration = eventToDelete.end?.dateTime 
+              ? differenceInMinutes(parseISO(eventToDelete.end.dateTime), parseISO(eventToDelete.start.dateTime))
+              : 60;
+            
+            const newEnd = addMinutes(newStart, duration);
+
+            await updateEvent(id, {
+              summary: eventToDelete.summary,
+              startTime: newStart,
+              endTime: newEnd
+            });
+            rescheduled = true;
+          }
+        }
+      } catch (geminiErr) {
+        console.warn('No se pudo obtener sugerencia de la IA, eliminando de forma clásica:', geminiErr);
       }
+
+      // 2. Si no se reagendó, se elimina definitivamente
+      if (!rescheduled) {
+        await deleteEvent(id);
+      }
+      
+      loadDashboard();
     } catch (err) {
-      alert('Error al eliminar el evento');
+      alert('Error al procesar el evento');
+    } finally {
+      setLoading(false);
     }
   };
 
