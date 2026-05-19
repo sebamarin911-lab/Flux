@@ -1,20 +1,24 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { fetchWeekEvents, createEvent, updateEvent, deleteEvent } from '@/lib/calendar';
 import { Clock, MapPin, Plus, X, Calendar as CalendarIcon, Flame, Trophy, Pencil, Trash2, CheckCircle2 } from 'lucide-react';
 import { format, parseISO, isToday, addDays, addHours, eachDayOfInterval, startOfWeek, startOfMinute, differenceInMinutes, addMinutes } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { startEventNotificationScheduler, stopEventNotificationScheduler } from '@/lib/notifications';
-import { fetchCompletedEvents, saveEventCompletion } from '@/lib/completedEvents';
 import { ConfirmationDialog } from '@/components/ui/ConfirmationDialog';
+import { useFlux } from '@/context/FluxContext';
 
 export function AgendaView() {
-  const [rawEvents, setRawEvents] = useState<any[]>([]);
-  
-  const events = rawEvents;
-  
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    events,
+    eventStatus,
+    loading: globalLoading,
+    calendarError: error,
+    toggleEventCompletion,
+    addCalendarEvent,
+    updateCalendarEvent,
+    deleteCalendarEvent
+  } = useFlux();
 
+  const [localLoading, setLocalLoading] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newEvent, setNewEvent] = useState({
     summary: '',
@@ -24,8 +28,7 @@ export function AgendaView() {
   const [creating, setCreating] = useState(false);
   const [expandedDay, setExpandedDay] = useState<string | null>(format(new Date(), 'yyyy-MM-dd'));
 
-  // Event completion state
-  const [eventStatus, setEventStatus] = useState<Record<string, boolean>>({});
+  const loading = globalLoading || localLoading;
 
   // Confirmation Dialog States
   const [deleteDialog, setDeleteDialog] = useState<{
@@ -54,40 +57,7 @@ export function AgendaView() {
     eventToDelete: null
   });
 
-  async function loadEvents() {
-    setLoading(true);
-    try {
-      // Sync completed events status from DB/localStorage
-      const statusMap = await fetchCompletedEvents();
-      setEventStatus(statusMap);
-
-      const data = await fetchWeekEvents();
-      
-      // Deduplicate events by start time, prioritizing those with a location (Sala)
-      const uniqueEventsMap = data.reduce((acc: any, event: any) => {
-        const timeKey = (event.start.dateTime || event.start.date) + (event.summary || '');
-        if (!acc[timeKey] || (event.location && !acc[timeKey].location)) {
-          acc[timeKey] = event;
-        }
-        return acc;
-      }, {});
-      
-      const sortedEvents = Object.values(uniqueEventsMap).sort((a: any, b: any) => {
-        const timeA = (a as any).start.dateTime || (a as any).start.date;
-        const timeB = (b as any).start.dateTime || (b as any).start.date;
-        return new Date(timeA).getTime() - new Date(timeB).getTime();
-      });
-
-      setRawEvents(sortedEvents as any[]);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   useEffect(() => {
-    loadEvents();
     return () => stopEventNotificationScheduler();
   }, []);
 
@@ -132,16 +102,15 @@ export function AgendaView() {
     if (!newEvent.summary || !newEvent.start || !newEvent.end) return;
     setCreating(true);
     try {
-      await createEvent(newEvent.summary, new Date(newEvent.start), new Date(newEvent.end));
+      await addCalendarEvent(newEvent.summary, new Date(newEvent.start), new Date(newEvent.end));
       setShowAddForm(false);
       setNewEvent({
         summary: '',
         start: format(new Date(), "yyyy-MM-dd'T'HH:mm"),
         end: format(addHours(new Date(), 1), "yyyy-MM-dd'T'HH:mm")
       });
-      await loadEvents();
     } catch (err: any) {
-      setError(err.message);
+      console.error(err);
     } finally {
       setCreating(false);
     }
@@ -167,7 +136,7 @@ export function AgendaView() {
     setDeleteDialog({ isOpen: false, eventId: '', summary: '' });
     if (!eventToDelete) return;
 
-    setLoading(true);
+    setLocalLoading(true);
     try {
       // 1. Intentar obtener la sugerencia de la IA
       try {
@@ -193,19 +162,18 @@ export function AgendaView() {
       }
 
       // 2. Si no hay sugerencia de la IA, se elimina definitivamente
-      await deleteEvent(id);
-      loadEvents();
+      await deleteCalendarEvent(id);
     } catch (err) {
       alert('Error al eliminar el evento');
     } finally {
-      setLoading(false);
+      setLocalLoading(false);
     }
   };
 
   const handleConfirmReschedule = async () => {
     const { eventId, summary, suggestedTime, eventToDelete } = rescheduleDialog;
     setRescheduleDialog(prev => ({ ...prev, isOpen: false }));
-    setLoading(true);
+    setLocalLoading(true);
     try {
       const baseDate = parseISO(eventToDelete.start.dateTime || eventToDelete.start.date);
       const [hours, mins] = suggestedTime.split(':').map(Number);
@@ -218,31 +186,29 @@ export function AgendaView() {
       
       const newEnd = addMinutes(newStart, duration);
 
-      await updateEvent(eventId, {
+      await updateCalendarEvent(eventId, {
         summary: summary,
         startTime: newStart,
         endTime: newEnd
       });
-      loadEvents();
     } catch (err) {
       alert('Error al reprogramar el evento');
     } finally {
-      setLoading(false);
+      setLocalLoading(false);
     }
   };
 
   const handleDeclineReschedule = async () => {
     const { eventId } = rescheduleDialog;
     setRescheduleDialog(prev => ({ ...prev, isOpen: false }));
-    setLoading(true);
+    setLocalLoading(true);
     try {
       // El usuario rechaza la postergación y prefiere eliminar definitivamente
-      await deleteEvent(eventId);
-      loadEvents();
+      await deleteCalendarEvent(eventId);
     } catch (err) {
       alert('Error al eliminar el evento');
     } finally {
-      setLoading(false);
+      setLocalLoading(false);
     }
   };
 
@@ -264,26 +230,18 @@ export function AgendaView() {
       
       const newEnd = addMinutes(newStart, duration);
 
-      await updateEvent(event.id, {
+      await updateCalendarEvent(event.id, {
         summary: newTitle,
         startTime: newStart,
         endTime: newEnd
       });
-      loadEvents();
     } catch (err) {
       alert('Error al actualizar el evento. Asegúrate del formato HH:mm');
     }
   };
 
   const toggleEventStatus = async (eventId: string) => {
-    const current = !eventStatus[eventId];
-    // UI instantánea
-    setEventStatus(prev => ({
-      ...prev,
-      [eventId]: current
-    }));
-    // Sincronizar en DB/LocalStorage
-    await saveEventCompletion(eventId, current);
+    await toggleEventCompletion(eventId);
   };
 
   // Group events by day

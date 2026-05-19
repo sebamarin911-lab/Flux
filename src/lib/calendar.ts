@@ -87,8 +87,18 @@ export async function fetchWeekEvents() {
 
   let providerToken = localStorage.getItem('google_provider_token');
   if (!providerToken) {
-    logger.error('Calendar', 'Google provider token missing from localStorage');
-    throw new Error('Please sign in with Google again to connect your Calendar.');
+    logger.warn('Calendar', 'Google provider token missing from localStorage, attempting silent token recovery...');
+    try {
+      const recoveredToken = await refreshGoogleToken();
+      if (recoveredToken) {
+        providerToken = recoveredToken;
+      } else {
+        throw new Error('Google provider token missing and silent recovery failed.');
+      }
+    } catch (err) {
+      logger.error('Calendar', 'Failed during silent recovery of Google provider token', err);
+      throw new Error('Please sign in with Google again to connect your Calendar.');
+    }
   }
 
   const today = new Date();

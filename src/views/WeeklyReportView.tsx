@@ -1,59 +1,21 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { fetchWeekEvents } from '@/lib/calendar';
-import { supabase } from '@/lib/supabase';
+import React, { useMemo } from 'react';
 import { TrendingUp, Calendar, CheckCircle2, Brain, Flame, Trophy, BarChart3 } from 'lucide-react';
 import { format, parseISO, startOfWeek, endOfWeek, eachDayOfInterval, isWithinInterval } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { useFlux } from '@/context/FluxContext';
 
 export function WeeklyReportView() {
-  const [events, setEvents] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [wellbeingData, setWellbeingData] = useState<any[]>([]);
+  const {
+    events,
+    eventStatus,
+    wellbeingLogs,
+    loading
+  } = useFlux();
 
   const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
   const weekEnd = endOfWeek(new Date(), { weekStartsOn: 1 });
   const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
-
-  useEffect(() => {
-    loadReport();
-  }, []);
-
-  async function loadReport() {
-    setLoading(true);
-    try {
-      // Load events
-      const data = await fetchWeekEvents();
-      const uniqueEventsMap = data.reduce((acc: any, event: any) => {
-        const timeKey = event.start.dateTime || event.start.date;
-        if (!acc[timeKey] || (event.location && !acc[timeKey].location)) {
-          acc[timeKey] = event;
-        }
-        return acc;
-      }, {});
-      setEvents(Object.values(uniqueEventsMap) as any[]);
-
-      // Load wellbeing logs
-      const { data: userData } = await supabase.auth.getUser();
-      if (userData.user) {
-        const wsStr = format(weekStart, 'yyyy-MM-dd');
-        const weStr = format(weekEnd, 'yyyy-MM-dd');
-        const { data: logs } = await supabase
-          .from('wellbeing_logs')
-          .select('*')
-          .eq('user_id', userData.user.id)
-          .gte('semana', wsStr)
-          .lte('semana', weStr)
-          .order('semana', { ascending: true });
-        
-        if (logs) setWellbeingData(logs);
-      }
-    } catch (err) {
-      console.error('Report load error:', err);
-    } finally {
-      setLoading(false);
-    }
-  }
 
   // Filter events for this week only
   const weekEvents = useMemo(() => {
@@ -61,7 +23,14 @@ export function WeeklyReportView() {
       const d = parseISO(e.start.dateTime || e.start.date);
       return isWithinInterval(d, { start: weekStart, end: weekEnd });
     });
-  }, [events]);
+  }, [events, weekStart, weekEnd]);
+
+  // Filter wellbeing logs for this week only
+  const wellbeingData = useMemo(() => {
+    const wsStr = format(weekStart, 'yyyy-MM-dd');
+    const weStr = format(weekEnd, 'yyyy-MM-dd');
+    return wellbeingLogs.filter(log => log.semana >= wsStr && log.semana <= weStr);
+  }, [wellbeingLogs, weekStart, weekEnd]);
 
   // Group by day
   const eventsByDay = useMemo(() => {
@@ -74,13 +43,7 @@ export function WeeklyReportView() {
       if (grouped[dateStr]) grouped[dateStr].push(e);
     });
     return grouped;
-  }, [weekEvents]);
-
-  // Completed events
-  const eventStatus: Record<string, boolean> = useMemo(() => {
-    const saved = localStorage.getItem('flux_event_status');
-    return saved ? JSON.parse(saved) : {};
-  }, []);
+  }, [weekEvents, weekDays]);
 
   const totalCompleted = useMemo(() => {
     return weekEvents.filter(e => eventStatus[e.id]).length;

@@ -1,20 +1,31 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { fetchWeekEvents, updateEvent, deleteEvent } from '@/lib/calendar';
 import { supabase } from '@/lib/supabase';
 import { Link, useNavigate } from 'react-router-dom';
 import { Calendar, Activity, Flame, Trophy, ArrowRight, Clock, MapPin, Zap, Brain, TrendingUp, Sun, Moon, AlertCircle, Pencil, Trash2, CheckCircle2 } from 'lucide-react';
 import { format, parseISO, isToday, isBefore, startOfWeek, differenceInMinutes, addMinutes, startOfMinute } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { fetchCompletedEvents, saveEventCompletion, fetchUserStreak, updateUserStreak } from '@/lib/completedEvents';
 import { ConfirmationDialog } from '@/components/ui/ConfirmationDialog';
 import { logger } from '@/lib/logger';
-import { requestNotificationPermission, scheduleMorningBrief, startEventNotificationScheduler, sendNotification } from '@/lib/notifications';
+import { requestNotificationPermission, sendNotification } from '@/lib/notifications';
+import { useFlux } from '@/context/FluxContext';
 
 export function DashboardView() {
   const navigate = useNavigate();
-  const [rawEvents, setRawEvents] = useState<any[]>([]);
+  const {
+    events,
+    eventStatus,
+    streakInfo,
+    wellbeingLogs,
+    loading: globalLoading,
+    calendarError,
+    refreshData,
+    toggleEventCompletion,
+    updateCalendarEvent,
+    deleteCalendarEvent
+  } = useFlux();
 
-  const events = rawEvents;
+  const [localLoading, setLocalLoading] = useState(false);
+  const [userName, setUserName] = useState('');
 
   // Today's events
   const todayEvents = useMemo(() => {
@@ -25,18 +36,7 @@ export function DashboardView() {
     });
   }, [events]);
 
-  const [loading, setLoading] = useState(true);
-  const [userName, setUserName] = useState('');
-  const [todayMentalScore, setTodayMentalScore] = useState<number | null>(null);
-  const [weeklyLogCount, setWeeklyLogCount] = useState(0);
-  const [calendarError, setCalendarError] = useState<string | null>(null);
-  const [eventStatus, setEventStatus] = useState<Record<string, boolean>>({});
-
-  const [streakInfo, setStreakInfo] = useState<{
-    current_streak: number;
-    max_racha_historica: number;
-    last_completed_date: string | null;
-  }>({ current_streak: 0, max_racha_historica: 0, last_completed_date: null });
+  const loading = globalLoading || localLoading;
 
   // Confirmation Dialog States
   const [deleteDialog, setDeleteDialog] = useState<{
@@ -66,84 +66,32 @@ export function DashboardView() {
   });
 
   useEffect(() => {
-    loadDashboard();
+    async function loadUser() {
+      try {
+        const { data: userData } = await supabase.auth.getUser();
+        if (userData?.user) {
+          const name = userData.user.user_metadata?.full_name || userData.user.email?.split('@')[0] || '';
+          setUserName(name.split(' ')[0]); // First name only
+        }
+      } catch (err) {
+        logger.error('DashboardView', 'Error fetching user metadata', err);
+      }
+    }
+    loadUser();
   }, []);
 
-  async function loadDashboard() {
-    setLoading(true);
-    setCalendarError(null);
-    try {
-      // Load user
-      const { data: userData } = await supabase.auth.getUser();
-      let statusMap: Record<string, boolean> = {};
-      if (userData.user) {
-        const name = userData.user.user_metadata?.full_name || userData.user.email?.split('@')[0] || '';
-        setUserName(name.split(' ')[0]); // First name only
-        
-        // Load today's wellbeing
-        const today = format(new Date(), 'yyyy-MM-dd');
-        const { data: todayLog } = await supabase
-          .from('wellbeing_logs')
-          .select('mental_score')
-          .eq('user_id', userData.user.id)
-          .eq('semana', today)
-          .maybeSingle();
-        
-        if (todayLog) setTodayMentalScore(todayLog.mental_score);
+  // Today's wellbeing score from global logs
+  const todayMentalScore = useMemo(() => {
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const todayLog = wellbeingLogs.find(l => l.semana === today);
+    return todayLog ? todayLog.mental_score : null;
+  }, [wellbeingLogs]);
 
-        // Load weekly log count
-        const weekStart = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
-        const { data: weekLogs } = await supabase
-          .from('wellbeing_logs')
-          .select('id')
-          .eq('user_id', userData.user.id)
-          .gte('semana', weekStart);
-        
-        if (weekLogs) setWeeklyLogCount(weekLogs.length);
-      }
-
-      // Load completed events from DB / localStorage
-      statusMap = await fetchCompletedEvents();
-      setEventStatus(statusMap);
-
-      // Load events
-      let sortedEvents: any[] = [];
-      try {
-        const data = await fetchWeekEvents();
-        const uniqueEventsMap = data.reduce((acc: any, event: any) => {
-          const timeKey = (event.start.dateTime || event.start.date) + (event.summary || '');
-          if (!acc[timeKey] || (event.location && !acc[timeKey].location)) {
-            acc[timeKey] = event;
-          }
-          return acc;
-        }, {});
-
-        sortedEvents = Object.values(uniqueEventsMap).sort((a: any, b: any) => {
-          const timeA = (a as any).start.dateTime || (a as any).start.date;
-          const timeB = (b as any).start.dateTime || (b as any).start.date;
-          return new Date(timeA).getTime() - new Date(timeB).getTime();
-        });
-
-        setRawEvents(sortedEvents as any[]);
-      } catch (calErr: any) {
-        console.error('Calendar load error:', calErr);
-        setCalendarError(calErr.message);
-      }
-
-      // Sync and load user streak
-      const todayStr = format(new Date(), 'yyyy-MM-dd');
-      const todayEvts = sortedEvents.filter((e: any) => {
-        const dateStr = format(parseISO(e.start.dateTime || e.start.date), 'yyyy-MM-dd');
-        return dateStr === todayStr;
-      });
-      const updatedStreak = await updateUserStreak(todayEvts, statusMap);
-      setStreakInfo(updatedStreak);
-    } catch (err) {
-      console.error('Dashboard load error:', err);
-    } finally {
-      setLoading(false);
-    }
-  }
+  // Weekly wellbeing log count from global logs
+  const weeklyLogCount = useMemo(() => {
+    const weekStart = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
+    return wellbeingLogs.filter(l => l.semana >= weekStart).length;
+  }, [wellbeingLogs]);
 
   const handleDeleteEventClick = (id: string) => {
     const eventToDelete = events.find(e => e.id === id);
@@ -165,10 +113,8 @@ export function DashboardView() {
     setDeleteDialog({ isOpen: false, eventId: '', summary: '' });
     if (!eventToDelete) return;
 
-    setLoading(true);
+    setLocalLoading(true);
     try {
-      let rescheduled = false;
-
       // 1. Intentar obtener la sugerencia de la IA
       try {
         const { getRescheduleSuggestion } = await import('@/lib/gemini');
@@ -193,19 +139,18 @@ export function DashboardView() {
       }
 
       // 2. Si no hay sugerencia de la IA, se elimina definitivamente
-      await deleteEvent(id);
-      loadDashboard();
+      await deleteCalendarEvent(id);
     } catch (err) {
       alert('Error al eliminar el evento');
     } finally {
-      setLoading(false);
+      setLocalLoading(false);
     }
   };
 
   const handleConfirmReschedule = async () => {
     const { eventId, summary, suggestedTime, eventToDelete } = rescheduleDialog;
     setRescheduleDialog(prev => ({ ...prev, isOpen: false }));
-    setLoading(true);
+    setLocalLoading(true);
     try {
       const baseDate = parseISO(eventToDelete.start.dateTime || eventToDelete.start.date);
       const [hours, mins] = suggestedTime.split(':').map(Number);
@@ -218,31 +163,29 @@ export function DashboardView() {
       
       const newEnd = addMinutes(newStart, duration);
 
-      await updateEvent(eventId, {
+      await updateCalendarEvent(eventId, {
         summary: summary,
         startTime: newStart,
         endTime: newEnd
       });
-      loadDashboard();
     } catch (err) {
       alert('Error al reprogramar el evento');
     } finally {
-      setLoading(false);
+      setLocalLoading(false);
     }
   };
 
   const handleDeclineReschedule = async () => {
     const { eventId } = rescheduleDialog;
     setRescheduleDialog(prev => ({ ...prev, isOpen: false }));
-    setLoading(true);
+    setLocalLoading(true);
     try {
       // El usuario rechaza la postergación y prefiere eliminar definitivamente
-      await deleteEvent(eventId);
-      loadDashboard();
+      await deleteCalendarEvent(eventId);
     } catch (err) {
       alert('Error al eliminar el evento');
     } finally {
-      setLoading(false);
+      setLocalLoading(false);
     }
   };
 
@@ -264,34 +207,18 @@ export function DashboardView() {
       
       const newEnd = addMinutes(newStart, duration);
 
-      await updateEvent(event.id, {
+      await updateCalendarEvent(event.id, {
         summary: newTitle,
         startTime: newStart,
         endTime: newEnd
       });
-      loadDashboard();
     } catch (err) {
       alert('Error al actualizar el evento. Asegúrate del formato HH:mm');
     }
   };
 
   const toggleEventComplete = async (id: string) => {
-    const currentStatus = !!eventStatus[id];
-    const newStatus = !currentStatus;
-    
-    // UI instantánea
-    const updatedStatus = { ...eventStatus, [id]: newStatus };
-    setEventStatus(updatedStatus);
-    
-    // DB & LocalStorage
-    await saveEventCompletion(id, newStatus);
-
-    // Actualizar racha deportista de forma instantánea
-    const updatedStreak = await updateUserStreak(todayEvents, updatedStatus);
-    setStreakInfo(updatedStreak);
-    
-    // Recargar métricas del dashboard
-    loadDashboard();
+    await toggleEventCompletion(id);
   };
 
   // Racha Deportiva en Peligro: pasadas las 20:00, hay eventos hoy y están pendientes o falta actividad crítica

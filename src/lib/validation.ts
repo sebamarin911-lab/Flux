@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { logger } from './logger';
 
 // ─── Google Calendar API Validation ──────────────────────────────────
 export const GoogleEventTimeSchema = z.object({
@@ -54,12 +55,34 @@ export const FlowRecoverySchema = z.object({
   ])
 });
 
+// New AI Validation Schemas
+export const EvolutionSchema = z.object({
+  evolution: z.string().default('Continúa registrando tu sentir para perfilar tu evolución emocional.')
+});
+
+export const DailyInsightSchema = z.object({
+  insight: z.string().default('Tu mente encuentra orden cuando te permites expresar tus reflexiones sin filtros.')
+});
+
 // ─── Wellbeing Logs Validation ──────────────────────────────────────
 export const WellbeingLogSchema = z.object({
   user_id: z.string().uuid("user_id debe ser un UUID válido"),
   semana: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "semana debe ser YYYY-MM-DD"),
   mental_score: z.number().int().min(1).max(5),
   notas: z.string().max(4000).optional().default('')
+});
+
+// ─── Completed Events & Streaks Validation ───────────────────────────
+export const CompletedEventSchema = z.object({
+  event_id: z.string(),
+  completed: z.boolean(),
+  user_id: z.string().uuid().optional()
+});
+
+export const StreakSchema = z.object({
+  current_streak: z.number().int().nonnegative().default(0),
+  max_racha_historica: z.number().int().nonnegative().default(0),
+  last_completed_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Debe ser YYYY-MM-DD").nullable().default(null)
 });
 
 // ─── Push Subscription Validation ────────────────────────────────────
@@ -72,3 +95,56 @@ export const PushSubscriptionSchema = z.object({
   endpoint: z.string().url("Endpoint de suscripción debe ser una URL válida"),
   keys: PushSubscriptionKeysSchema
 });
+
+// ─── Telemetry Log & Safe Validation Utility ──────────────────────────
+
+/**
+ * Validates data against a Zod schema. If validation fails, it intercepts the error,
+ * writes a detailed report to localStorage.flux_debug_logs, logs to standard telemetry,
+ * and returns the pre-defined safe fallback object to avoid any crash.
+ */
+export function safeValidate<T extends z.ZodTypeAny>(
+  schema: T,
+  data: any,
+  fallback: z.infer<T>,
+  contextName: string
+): z.infer<T> {
+  const result = schema.safeParse(data);
+  if (result.success) {
+    return result.data;
+  }
+
+  const errorMessage = `Zod Validation Failed for [${contextName}]`;
+  const errorDetails = {
+    errors: result.error.issues,
+    dataReceived: data,
+    timestamp: new Date().toISOString()
+  };
+
+  // Telemetry log inside system errors
+  logger.error(contextName, errorMessage, errorDetails);
+
+  // Detailed debug log inside localStorage.flux_debug_logs
+  try {
+    const existingLogsStr = localStorage.getItem('flux_debug_logs') || '[]';
+    const logs = JSON.parse(existingLogsStr);
+    logs.push({
+      timestamp: new Date().toISOString(),
+      context: contextName,
+      message: errorMessage,
+      errors: result.error.issues.map((e: any) => ({
+        path: e.path.join('.'),
+        message: e.message,
+        code: e.code
+      })),
+      received: data
+    });
+    // Limit to last 50 debug records
+    if (logs.length > 50) logs.shift();
+    localStorage.setItem('flux_debug_logs', JSON.stringify(logs));
+  } catch (e) {
+    console.error('Failed to save flux_debug_logs to localStorage', e);
+  }
+
+  return fallback;
+}

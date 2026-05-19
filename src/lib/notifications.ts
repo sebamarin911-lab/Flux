@@ -16,21 +16,37 @@ export function getNotificationStatus(): 'granted' | 'denied' | 'default' | 'uns
   return Notification.permission;
 }
 
-export function sendNotification(title: string, options?: NotificationOptions) {
+export async function sendNotification(title: string, options?: NotificationOptions) {
   if (Notification.permission !== 'granted') return;
   
-  const notification = new Notification(title, {
-    icon: '/flux-icon.png',
-    badge: '/flux-icon.png',
+  const defaultOptions: any = {
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    vibrate: [200, 100, 200],
     ...options,
-  });
-
-  notification.onclick = () => {
-    window.focus();
-    notification.close();
   };
 
-  return notification;
+  if ('serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      await reg.showNotification(title, defaultOptions);
+      return;
+    } catch (err) {
+      console.warn('Failed to send notification via Service Worker, using browser window fallback:', err);
+    }
+  }
+
+  // Fallback for browsers or environments without active SWs
+  try {
+    const notification = new Notification(title, defaultOptions);
+    notification.onclick = () => {
+      window.focus();
+      notification.close();
+    };
+    return notification;
+  } catch (err) {
+    console.error('Failed to trigger window fallback notification:', err);
+  }
 }
 
 // Notification scheduler that checks for upcoming events

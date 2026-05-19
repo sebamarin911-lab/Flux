@@ -1,149 +1,164 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Brain, Flame, Trophy, Lock, Unlock, Sparkles, AlertCircle, Heart } from 'lucide-react';
 import { logger } from '@/lib/logger';
 import { WellbeingLogSchema } from '@/lib/validation';
+import { useFlux } from '@/context/FluxContext';
 
 export function WellbeingView() {
+  const {
+    wellbeingLogs,
+    introspectionStreak,
+    isReflectionCompletedToday,
+    saveWellbeingReflection
+  } = useFlux();
+
   const [mentalScore, setMentalScore] = useState<number | null>(null);
   const [notes, setNotes] = useState('');
-  
-  const [todayLogs, setTodayLogs] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [historicalData, setHistoricalData] = useState<any[]>([]);
 
+  // AI evolution state
+  const [evolutionText, setEvolutionText] = useState('Escribe reflexiones para comenzar a perfilar tu evolución emocional.');
+  const [loadingEvolution, setLoadingEvolution] = useState(false);
+
+  // AI Daily insight state
+  const [dailyInsight, setDailyInsight] = useState('');
+  const [loadingInsight, setLoadingInsight] = useState(false);
+
+  // Get notes history for AI
+  const notesHistory = useMemo(() => {
+    return wellbeingLogs
+      .filter(l => l.notas && l.notas.trim() !== '')
+      .map(l => l.notas);
+  }, [wellbeingLogs]);
+
+  // Fetch Weekly Evolution Summary on change
   useEffect(() => {
-    loadHistoricalData();
-    loadTodayEntry();
-  }, []);
-
-  async function loadHistoricalData() {
-    const { data: userData } = await supabase.auth.getUser();
-    if (!userData.user) return;
-
-    const { data } = await supabase
-      .from('wellbeing_logs')
-      .select('semana, mental_score')
-      .eq('user_id', userData.user.id)
-      .order('semana', { ascending: true })
-      .limit(30);
-
-    if (data) {
-      const chartData = data.map(log => ({
-        date: format(new Date(log.semana + 'T12:00:00'), 'd MMM', { locale: es }),
-        Bienestar: log.mental_score
-      }));
-      setHistoricalData(chartData);
+    let active = true;
+    if (notesHistory.length > 0) {
+      setLoadingEvolution(true);
+      import('@/lib/gemini').then(({ getEvolutionAnalysis }) => {
+        getEvolutionAnalysis({ history: notesHistory })
+          .then(res => {
+            if (active) {
+              setEvolutionText(res.evolution || 'Sin análisis de evolución disponible en este momento.');
+            }
+          })
+          .catch(err => {
+            console.error('Error fetching weekly evolution:', err);
+            if (active) setEvolutionText('Tu sentir va tomando forma. Sigue expresando tus reflexiones.');
+          })
+          .finally(() => {
+            if (active) setLoadingEvolution(false);
+          });
+      });
+    } else {
+      setEvolutionText('Escribe reflexiones para comenzar a perfilar tu evolución emocional.');
     }
-  }
+    return () => {
+      active = false;
+    };
+  }, [notesHistory]);
 
-  async function loadTodayEntry() {
-    const { data: userData } = await supabase.auth.getUser();
-    if (!userData.user) return;
+  // Fetch Daily Insight when today reflection is completed
+  useEffect(() => {
+    let active = true;
+    if (isReflectionCompletedToday) {
+      setLoadingInsight(true);
+      const todayStr = format(new Date(), 'yyyy-MM-dd');
+      const todayLog = wellbeingLogs.find(l => l.semana === todayStr);
+      const todayNote = todayLog?.notas || '';
 
+      import('@/lib/gemini').then(({ getDailyInsight }) => {
+        getDailyInsight({ todayNote, history: notesHistory })
+          .then(res => {
+            if (active) {
+              setDailyInsight(res.insight || 'Tu mente encuentra balance cuando te permites expresar tus reflexiones.');
+            }
+          })
+          .catch(err => {
+            console.error('Error fetching daily insight:', err);
+            if (active) setDailyInsight('Tu mente encuentra balance cuando te permites expresar tus reflexiones.');
+          })
+          .finally(() => {
+            if (active) setLoadingInsight(false);
+          });
+      });
+    } else {
+      setDailyInsight('');
+    }
+    return () => {
+      active = false;
+    };
+  }, [isReflectionCompletedToday, wellbeingLogs, notesHistory]);
+
+  // Today's existing note entries
+  const todayLogs = useMemo(() => {
     const today = format(new Date(), 'yyyy-MM-dd');
-    const { data } = await supabase
-      .from('wellbeing_logs')
-      .select('mental_score, notas')
-      .eq('user_id', userData.user.id)
-      .eq('semana', today)
-      .maybeSingle();
-
-    if (data) {
-      setMentalScore(data.mental_score);
-      if (data.notas) {
-        // Split by our separator or just store as is
-        const logs = data.notas.split('\n---\n').filter(Boolean);
-        setTodayLogs(logs);
-      }
+    const existingLog = wellbeingLogs.find(l => l.semana === today);
+    if (existingLog && existingLog.notas) {
+      return existingLog.notas.split('\n---\n').filter(Boolean);
     }
-  }
+    return [];
+  }, [wellbeingLogs]);
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (mentalScore === null) return;
     
     setSaving(true);
-    const { data: userData } = await supabase.auth.getUser();
-    if (!userData.user) {
-      setSaving(false);
-      return;
-    }
+    setSaveMessage(null);
 
-    const today = format(new Date(), 'yyyy-MM-dd');
-    
-    // UPSERT log for today
-    const existingNotes = todayLogs.join('\n---\n');
-    const newNotes = existingNotes && notes
-      ? `${existingNotes}\n---\n${notes}`
-      : notes || existingNotes;
+    const success = await saveWellbeingReflection(mentalScore, notes.trim());
 
-    const payload = {
-      user_id: userData.user.id,
-      semana: today,
-      mental_score: mentalScore,
-      notas: newNotes
-    };
-
-    const validated = WellbeingLogSchema.safeParse(payload);
-    if (!validated.success) {
-      logger.error('Wellbeing', 'First wellbeing log entry validation failed', validated.error);
-      setSaveMessage({ type: 'error', text: '❌ Error: Datos de registro inválidos' });
-      setSaving(false);
-      return;
-    }
-
-    logger.info('Wellbeing', `Saving wellbeing log for date ${today}...`);
-    const { error } = await supabase
-      .from('wellbeing_logs')
-      .upsert(validated.data, { onConflict: 'user_id,semana' });
-
-    if (!error) {
-      logger.info('Wellbeing', `Wellbeing log for date ${today} saved successfully.`);
-      await loadHistoricalData();
-      if (notes.trim()) {
-        setTodayLogs(prev => [...prev, notes.trim()]);
-      }
+    if (success) {
+      const currentNotes = notes.trim();
       setNotes('');
       setMentalScore(null);
       setSaveMessage({ type: 'success', text: '✅ Reflexión guardada correctamente' });
 
-      // AI TRIGGERS (Background)
-      const currentNotes = notes.trim();
+      // Run AI Tags in background if we wrote notes
       if (currentNotes) {
-        import('@/lib/gemini').then(({ getAutoTags }) => {
-          getAutoTags({ note: currentNotes }).then(async (aiData) => {
-            if (!aiData?.tags) return;
-            const updatedText = `${currentNotes}\n[IA] Etiquetas: ${aiData.tags.join(', ')} | Tema: ${aiData.primary_theme}`;
+        try {
+          const { data: userData } = await supabase.auth.getUser();
+          if (userData?.user) {
+            const today = format(new Date(), 'yyyy-MM-dd');
+            const todayLog = wellbeingLogs.find(l => l.semana === today);
+            const existingNotes = todayLog?.notas || '';
             
-            const updatedExisting = existingNotes ? `${existingNotes}\n---\n${updatedText}` : updatedText;
-            const aiPayload = {
-              user_id: userData.user.id,
-              semana: today,
-              mental_score: mentalScore,
-              notas: updatedExisting
-            };
+            import('@/lib/gemini').then(({ getAutoTags }) => {
+              getAutoTags({ note: currentNotes }).then(async (aiData) => {
+                if (!aiData?.tags) return;
+                const updatedText = `${currentNotes}\n[IA] Etiquetas: ${aiData.tags.join(', ')} | Tema: ${aiData.primary_theme}`;
+                
+                const updatedExisting = existingNotes ? `${existingNotes}\n---\n${updatedText}` : updatedText;
+                const aiPayload = {
+                  user_id: userData.user.id,
+                  semana: today,
+                  mental_score: todayLog?.mental_score || mentalScore,
+                  notas: updatedExisting
+                };
 
-            const validatedAI = WellbeingLogSchema.safeParse(aiPayload);
-            if (validatedAI.success) {
-              logger.info('Wellbeing', 'Saving AI auto-tag updates to wellbeing logs...');
-              await supabase.from('wellbeing_logs').upsert(validatedAI.data, { onConflict: 'user_id,semana' });
-              loadTodayEntry(); // refresh to show tags
-            } else {
-              logger.error('Wellbeing', 'AI augmented log validation failed', validatedAI.error);
-            }
-          });
-        });
+                const validatedAI = WellbeingLogSchema.safeParse(aiPayload);
+                if (validatedAI.success) {
+                  await supabase.from('wellbeing_logs').upsert(validatedAI.data, { onConflict: 'user_id,semana' });
+                }
+              });
+            });
+          }
+        } catch (err) {
+          logger.error('Wellbeing', 'AI tag update error', err);
+        }
       }
 
-      // Dominical Weekly Summary
+      // Dominical summary generation
       if (new Date().getDay() === 0) {
         import('@/lib/gemini').then(({ getWeeklySummary }) => {
           getWeeklySummary({ 
-            sliders: { mental: mentalScore, fisico: 3 }, // using 3 as default fisico 
+            sliders: { mental: mentalScore, fisico: 3 }, 
             notes: currentNotes, 
             streak: Number(localStorage.getItem('flux_streak') || 0) 
           }).then(summary => {
@@ -154,10 +169,8 @@ export function WellbeingView() {
           });
         });
       }
-
     } else {
-      console.error('Error guardando reflexión:', error);
-      setSaveMessage({ type: 'error', text: `❌ Error al guardar: ${error.message}` });
+      setSaveMessage({ type: 'error', text: '❌ Error al guardar tu reflexión. Inténtalo nuevamente.' });
     }
     
     setSaving(false);
@@ -172,17 +185,22 @@ export function WellbeingView() {
   ];
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 h-full pb-8">
+    <div className="max-w-5xl mx-auto space-y-8 h-full pb-8">
+      {/* Title */}
       <div>
-        <h1 className="text-3xl font-display font-bold">Bienestar y Paz Mental</h1>
-        <p className="text-surface-500 dark:text-surface-400 mt-1">El agotamiento mental se combate con reflexión y hábitos saludables.</p>
+        <h1 className="text-3xl md:text-4xl font-display font-bold text-surface-900 dark:text-surface-50 flex items-center gap-3">
+          <Brain className="w-8 h-8 text-purple-500" />
+          Paz Mental y Bienestar
+        </h1>
+        <p className="text-surface-500 dark:text-surface-400 mt-1">El agotamiento mental se combate expresando tus emociones y entendiendo tu mentalidad.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+        {/* Left Column: Introspection Form */}
         <div className="lg:col-span-3 space-y-6">
-          <div className="bg-white dark:bg-surface-950 p-6 rounded-3xl border border-surface-100 dark:border-surface-800 shadow-sm">
-            <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
-              <span className="text-2xl">🧠</span> Check-in Mental Diario
+          <div className="bg-white dark:bg-surface-950 p-6 md:p-8 rounded-3xl border border-surface-100 dark:border-surface-800 shadow-sm relative overflow-hidden">
+            <h2 className="text-xl font-semibold mb-6 flex items-center gap-2 text-surface-900 dark:text-surface-50">
+              <span className="text-2xl">🧠</span> Descarga Emocional
             </h2>
             
             <form onSubmit={handleSave} className="space-y-8">
@@ -190,22 +208,22 @@ export function WellbeingView() {
               {/* Mood Selector */}
               <div>
                 <label className="block text-sm font-medium mb-3 text-surface-700 dark:text-surface-300">
-                  ¿Cómo está tu energía mental hoy?
+                  ¿Cómo se siente tu energía mental en este momento?
                 </label>
-                <div className="grid grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {moods.map((mood) => (
                     <button
                       key={mood.score}
                       type="button"
                       onClick={() => setMentalScore(mood.score)}
-                      className={`flex flex-col items-center justify-center py-4 rounded-2xl border transition-all ${
+                      className={`flex flex-col items-center justify-center py-4 px-2 rounded-2xl border transition-all cursor-pointer ${
                         mentalScore === mood.score 
-                          ? 'border-flux-600 bg-flux-100 dark:bg-flux-900/60 shadow-md ring-2 ring-flux-500/40' 
-                          : 'border-surface-300 dark:border-surface-600 bg-surface-50 dark:bg-surface-800 hover:bg-surface-200 dark:hover:bg-surface-700'
+                          ? 'border-purple-600 bg-purple-50 dark:bg-purple-950/40 shadow-md ring-2 ring-purple-500/40' 
+                          : 'border-surface-200 dark:border-surface-800 bg-surface-50 dark:bg-surface-900 hover:bg-surface-100 dark:hover:bg-surface-800'
                       }`}
                     >
                       <span className="text-3xl mb-2 drop-shadow-sm">{mood.emoji}</span>
-                      <span className={`text-sm font-semibold ${mentalScore === mood.score ? 'text-flux-900 dark:text-flux-100' : 'text-surface-900 dark:text-surface-100'}`}>
+                      <span className={`text-xs font-bold ${mentalScore === mood.score ? 'text-purple-700 dark:text-purple-300' : 'text-surface-700 dark:text-surface-300'}`}>
                         {mood.label}
                       </span>
                     </button>
@@ -213,9 +231,7 @@ export function WellbeingView() {
                 </div>
               </div>
 
-
-
-              {/* Journaling */}
+              {/* Journaling Textarea */}
               <div>
                 <label className="block text-sm font-medium mb-3 text-surface-700 dark:text-surface-300">
                   Descarga Mental y Reflexión
@@ -224,18 +240,21 @@ export function WellbeingView() {
                   rows={5}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Escribe tus reflexiones de la semana, aprendizajes o simplemente descarga lo que tienes en mente para despejar tu cabeza..."
-                  className="w-full bg-surface-50 dark:bg-surface-900/50 border border-surface-200 dark:border-surface-700 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-flux-500 resize-none shadow-inner text-surface-900 dark:text-surface-100 placeholder:text-surface-400 dark:placeholder:text-surface-500"
+                  placeholder="Vierte tu cabeza aquí. ¿Qué te estresa? ¿Qué aprendiste hoy? No te limites, es tu espacio privado..."
+                  className="w-full bg-surface-50 dark:bg-surface-900/50 border border-surface-200 dark:border-surface-800 rounded-2xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none shadow-sm text-surface-900 dark:text-surface-100 placeholder:text-surface-400 dark:placeholder:text-surface-500 text-sm leading-relaxed"
                 />
               </div>
 
-              {/* Display Today's Reflections */}
+              {/* Display Today's Speech Bubbles */}
               {todayLogs.length > 0 && (
                 <div className="space-y-3">
-                  <p className="text-xs font-semibold text-surface-400 uppercase tracking-wider">Reflexiones de hoy</p>
+                  <p className="text-[10px] font-bold text-surface-400 uppercase tracking-wider">Reflexiones Escritas Hoy</p>
                   <div className="space-y-2">
-                    {todayLogs.map((log, i) => (
-                      <div key={i} className="p-3 bg-surface-50 dark:bg-surface-900 rounded-xl border border-surface-100 dark:border-surface-800 text-sm text-surface-700 dark:text-surface-300 italic">
+                    {todayLogs.map((log: string, i: number) => (
+                      <div 
+                        key={i} 
+                        className="p-3 bg-purple-50/50 dark:bg-purple-950/20 rounded-2xl border border-purple-100/50 dark:border-purple-900/20 text-sm text-purple-950 dark:text-purple-200 italic shadow-sm relative"
+                      >
                         "{log}"
                       </div>
                     ))}
@@ -246,13 +265,19 @@ export function WellbeingView() {
               <button 
                 type="submit"
                 disabled={saving || mentalScore === null}
-                className="w-full bg-flux-600 hover:bg-flux-700 text-white py-3.5 rounded-xl font-medium transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:shadow-none flex justify-center"
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3.5 rounded-2xl font-bold transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:shadow-none flex justify-center items-center gap-2 cursor-pointer text-sm"
               >
-                {saving ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : 'Guardar Reflexión de Hoy'}
+                {saving ? (
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                ) : (
+                  <>
+                    <Heart className="w-4 h-4 fill-white" /> Guardar Registro Diario
+                  </>
+                )}
               </button>
 
               {saveMessage && (
-                <div className={`p-3 rounded-xl text-sm font-medium text-center animate-in fade-in ${
+                <div className={`p-3 rounded-2xl text-xs font-semibold text-center animate-in fade-in ${
                   saveMessage.type === 'success' 
                     ? 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800' 
                     : 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800'
@@ -264,59 +289,132 @@ export function WellbeingView() {
           </div>
         </div>
 
+        {/* Right Column: Gamification Widgets */}
         <div className="lg:col-span-2 space-y-6">
-          <div className="bg-gradient-to-br from-surface-800 to-surface-950 dark:from-surface-900 dark:to-black text-white p-6 rounded-3xl shadow-lg relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-flux-500 rounded-full blur-[80px] opacity-30"></div>
-            <h2 className="text-xl font-semibold mb-2 relative z-10">Tu Paz Mental</h2>
-            {(() => {
-              const summaryStr = localStorage.getItem('ai_weekly_summary');
-              const summary = summaryStr ? JSON.parse(summaryStr) : null;
-              if (summary) {
-                return (
-                  <div className="relative z-10 mb-6 bg-white/10 rounded-xl p-3 border border-white/20">
-                    <p className="text-sm font-medium text-flux-200 mb-1">Tendencia: {summary.trend === 'up' ? '↗️ Al alza' : summary.trend === 'down' ? '↘️ A la baja' : '➡️ Estable'}</p>
-                    <p className="text-xs text-surface-200 mb-2">💡 {summary.micro_tip}</p>
-                    <p className="text-xs text-surface-300">🎯 Próximo foco: {summary.next_focus}</p>
-                  </div>
-                );
-              }
-              return (
-                <p className="text-surface-300 text-sm mb-6 relative z-10 leading-relaxed">
-                  La verdadera productividad no es hacer más, es hacer lo correcto con la mente clara. Protege tu energía.
-                </p>
-              );
-            })()}
-            
-            <div className="bg-white/10 backdrop-blur-md rounded-2xl p-4 border border-white/10 relative z-10">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-surface-200">Tendencia de Bienestar</span>
-                <span className="text-xs bg-flux-500/30 text-flux-200 px-2 py-1 rounded-full">Últimos 30 días</span>
+          
+          {/* 1. Introspection Streak Widget */}
+          <div className="bg-gradient-to-br from-purple-600 via-indigo-600 to-indigo-700 text-white p-6 rounded-3xl shadow-lg relative overflow-hidden flex flex-col justify-between group">
+            {/* Decorative background aura */}
+            <div className="absolute -top-12 -right-12 w-32 h-32 bg-white/10 rounded-full blur-2xl group-hover:scale-110 transition-transform duration-500"></div>
+            <div className="absolute -bottom-8 -left-8 w-24 h-24 bg-white/5 rounded-full blur-md"></div>
+
+            <div className="relative z-10 flex items-center justify-between mb-4">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider bg-white/20 backdrop-blur-md px-3 py-1 rounded-full">
+                🔥 Racha de Introspección
+              </span>
+              <Flame className="w-6 h-6 text-purple-200 animate-pulse group-hover:scale-120 transition-transform" />
+            </div>
+
+            <div className="relative z-10 my-2">
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-5xl font-extrabold tracking-tight filter drop-shadow-md">
+                  {introspectionStreak.current}
+                </span>
+                <span className="text-sm font-semibold opacity-90">días logrados</span>
               </div>
-              <div className="h-[120px] w-full mt-4">
-                {historicalData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={historicalData} margin={{ top: 5, right: 0, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="colorMental" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.5}/>
-                          <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <Tooltip 
-                        contentStyle={{ borderRadius: '8px', border: 'none', background: 'rgba(15, 23, 42, 0.9)', color: 'white' }}
-                        itemStyle={{ color: '#c4b5fd' }}
-                      />
-                      <Area type="monotone" dataKey="Bienestar" stroke="#a78bfa" strokeWidth={2} fillOpacity={1} fill="url(#colorMental)" />
-                    </AreaChart>
-                  </ResponsiveContainer>
+              <p className="text-xs opacity-85 mt-2 font-medium leading-relaxed">
+                {introspectionStreak.current > 0 
+                  ? '¡Excelente! Escribir todos los días ayuda a calmar la ansiedad.'
+                  : 'Registra tu check-in hoy para iniciar tu racha de reflexión personal.'}
+              </p>
+            </div>
+
+            <div className="relative z-10 mt-5 pt-4 border-t border-white/20 flex items-center justify-between text-xs font-bold">
+              <span className="opacity-80">Récord Histórico:</span>
+              <span className="flex items-center gap-1.5 bg-white/20 px-3 py-1 rounded-full">
+                <Trophy className="w-3.5 h-3.5 text-yellow-300" /> {introspectionStreak.max} días
+              </span>
+            </div>
+          </div>
+
+          {/* 2. Tu Evolución Semanal Module */}
+          <div className="bg-purple-950/20 backdrop-blur-xl border border-purple-500/20 p-6 rounded-3xl relative overflow-hidden flex flex-col justify-between">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-purple-500 rounded-full blur-[60px] opacity-20"></div>
+            
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-purple-300 uppercase tracking-widest flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                  Tu Evolución Semanal
+                </h3>
+              </div>
+              
+              {loadingEvolution ? (
+                <div className="flex items-center gap-2.5 py-3 text-purple-300/70 text-xs font-medium">
+                  <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-purple-400"></div>
+                  Analizando tu sentir reciente...
+                </div>
+              ) : (
+                <p className="text-sm font-semibold text-surface-900 dark:text-purple-100 leading-relaxed italic bg-white/5 dark:bg-purple-900/10 p-4 rounded-2xl border border-purple-500/10 shadow-inner">
+                  "{evolutionText}"
+                </p>
+              )}
+            </div>
+            
+            <p className="text-[10px] text-surface-400 dark:text-purple-400/60 mt-3 font-semibold">
+              💡 Basado en tus registros y notas de bienestar
+            </p>
+          </div>
+
+          {/* 3. Insight del Día Widget (AI Gamified & Locked) */}
+          <div className="relative overflow-hidden rounded-3xl">
+            {isReflectionCompletedToday ? (
+              // UNLOCKED STATE
+              <div className="bg-gradient-to-br from-indigo-900/30 via-purple-900/30 to-pink-900/30 backdrop-blur-xl border border-purple-500/30 p-6 rounded-3xl shadow-md transition-all duration-500 animate-in fade-in zoom-in-95">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2 text-purple-300 font-bold uppercase tracking-wider text-xs">
+                    <Sparkles className="w-4 h-4 text-yellow-300 animate-spin-slow" />
+                    Insight del Día
+                  </div>
+                  <Unlock className="w-5 h-5 text-green-400 animate-pulse" />
+                </div>
+                
+                {loadingInsight ? (
+                  <div className="flex items-center gap-2.5 py-4 text-purple-300/80 text-xs font-medium">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-300"></div>
+                    Descifrando tu mente...
+                  </div>
                 ) : (
-                  <div className="h-full flex items-center justify-center text-surface-400 text-sm text-center px-4">
-                    Comienza a registrar tu bienestar para ver tus tendencias
+                  <div className="space-y-3">
+                    <p className="text-base font-bold text-surface-900 dark:text-purple-50 leading-relaxed font-display">
+                      "{dailyInsight}"
+                    </p>
+                    <div className="w-full bg-purple-500/10 h-0.5 rounded-full"></div>
+                    <p className="text-[9px] text-purple-400 font-semibold leading-normal">
+                      ✨ Un pensamiento personalizado por Gemini para guiar tu introspección.
+                    </p>
                   </div>
                 )}
               </div>
-            </div>
+            ) : (
+              // LOCKED STATE
+              <div className="bg-surface-100/50 dark:bg-surface-900/30 border border-surface-200/50 dark:border-surface-800/50 p-6 rounded-3xl shadow-sm relative overflow-hidden flex flex-col justify-between group">
+                {/* Blur Cover Overlay */}
+                <div className="absolute inset-0 bg-surface-50/20 dark:bg-surface-950/25 backdrop-blur-[5px] filter z-10 flex flex-col items-center justify-center p-6 text-center transition-all duration-300 group-hover:backdrop-blur-[3px]">
+                  <div className="bg-yellow-500/10 dark:bg-yellow-500/20 border border-yellow-500/20 p-3 rounded-full mb-3 text-yellow-600 dark:text-yellow-400 shadow-md animate-bounce">
+                    <Lock className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-sm font-bold text-surface-900 dark:text-surface-100 mb-1">Módulo Bloqueado</h4>
+                  <p className="text-xs text-surface-500 dark:text-surface-400 max-w-xs leading-relaxed font-semibold">
+                    Registra tu check-in mental y escribe una reflexión hoy para desbloquear tu Insight del Día generado por la IA.
+                  </p>
+                </div>
+
+                {/* Simulated content behind blur */}
+                <div className="opacity-20 pointer-events-none select-none">
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-xs font-bold text-purple-400">Insight del Día</span>
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <p className="text-sm font-display font-bold leading-relaxed mb-2">
+                    Tu mente encuentra calma cuando te permites expresar tus sentimientos de forma brutalmente honesta.
+                  </p>
+                  <p className="text-[10px] text-surface-400">Un pensamiento para guiar tu introspección.</p>
+                </div>
+              </div>
+            )}
           </div>
+
         </div>
       </div>
     </div>

@@ -5,7 +5,10 @@ import {
   MorningBriefSchema,
   RescheduleSuggestionSchema,
   AutoTagsSchema,
-  FlowRecoverySchema
+  FlowRecoverySchema,
+  EvolutionSchema,
+  DailyInsightSchema,
+  safeValidate
 } from './validation';
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
@@ -158,18 +161,13 @@ async function callGemini(
 
     const parsed = JSON.parse(resultText);
 
-    // Validate structured response schema to guarantee interface type safety
+    // Validate structured response schema to guarantee interface type safety with safeValidate fallback
     if (schema) {
-      const validated = schema.safeParse(parsed);
-      if (!validated.success) {
-        logger.error('Gemini', 'Output schema validation failed', validated.error);
-        return fallback;
-      }
-      
+      const validated = safeValidate(schema, parsed, fallback, 'GeminiAI');
       logUsage(hash, Math.ceil(resultText.length / 4));
-      await setCachedResponse(cacheKey, validated.data);
+      await setCachedResponse(cacheKey, validated);
       logger.info('Gemini', 'AI response successfully validated and cached.');
-      return validated.data;
+      return validated;
     }
 
     logUsage(hash, Math.ceil(resultText.length / 4));
@@ -231,4 +229,24 @@ export async function getFlowRecovery(context: any) {
   const prompt = "Genera una lista de 3 micro-hábitos ultra-cortos (menores a 15 minutos) diseñados específicamente para recuperar el ritmo diario o mantener la disciplina sin abrumar al usuario. Devuelve estrictamente el formato JSON: { habits: [{ title: string, duration: string, why: string }] }.";
   const fallback = FlowRecoverySchema.parse({});
   return callGemini(prompt, context, fallback, FlowRecoverySchema);
+}
+
+/**
+ * [6] TU EVOLUCIÓN SEMANAL
+ * Context: { history: string[] }
+ */
+export async function getEvolutionAnalysis(context: any) {
+  const prompt = "Analiza el historial de textos de reflexión personal del usuario. Genera un resumen honesto y crudo en una única oración concisa sobre sus avances, estado de ánimo o patrones de agotamiento mental detectados en los últimos días. Devuelve estrictamente el formato JSON: { evolution: string }.";
+  const fallback = EvolutionSchema.parse({});
+  return callGemini(prompt, context, fallback, EvolutionSchema);
+}
+
+/**
+ * [7] INSIGHT DEL DÍA
+ * Context: { todayNote: string, history: string[] }
+ */
+export async function getDailyInsight(context: any) {
+  const prompt = "Analizando la reflexión escrita hoy por el usuario y sus notas históricas de bienestar, genera una frase corta (de menos de 20 palabras) que le brinde un 'insight' profundo, filosófico o una perspectiva inesperada sobre su día para incentivar su introspección. Evita clichés vacíos. Devuelve estrictamente el formato JSON: { insight: string }.";
+  const fallback = DailyInsightSchema.parse({});
+  return callGemini(prompt, context, fallback, DailyInsightSchema);
 }
