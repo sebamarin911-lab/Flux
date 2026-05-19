@@ -5,6 +5,7 @@ import { es } from 'date-fns/locale';
 import { Brain, Flame, Trophy, Lock, Unlock, Sparkles, AlertCircle, Heart } from 'lucide-react';
 import { logger } from '@/lib/logger';
 import { WellbeingLogSchema } from '@/lib/validation';
+import type { CognitiveReframing } from '@/lib/validation';
 import { useFlux } from '@/context/FluxContext';
 
 export function WellbeingView() {
@@ -24,9 +25,10 @@ export function WellbeingView() {
   const [evolutionText, setEvolutionText] = useState('Escribe reflexiones para comenzar a perfilar tu evolución emocional.');
   const [loadingEvolution, setLoadingEvolution] = useState(false);
 
-  // AI Daily insight state
-  const [dailyInsight, setDailyInsight] = useState('');
-  const [loadingInsight, setLoadingInsight] = useState(false);
+  // AI Cognitive Reframing state (TCC)
+  const [reframingData, setReframingData] = useState<CognitiveReframing | null>(null);
+  const [loadingReframing, setLoadingReframing] = useState(false);
+  const [completedActions, setCompletedActions] = useState<Record<number, boolean>>({});
 
   // Get notes history for AI
   const notesHistory = useMemo(() => {
@@ -63,32 +65,45 @@ export function WellbeingView() {
     };
   }, [notesHistory]);
 
-  // Fetch Daily Insight when today reflection is completed
+  // Fetch Cognitive Reframing when today reflection is completed
   useEffect(() => {
     let active = true;
     if (isReflectionCompletedToday) {
-      setLoadingInsight(true);
+      setLoadingReframing(true);
       const todayStr = format(new Date(), 'yyyy-MM-dd');
       const todayLog = wellbeingLogs.find(l => l.semana === todayStr);
-      const todayNote = todayLog?.notas || '';
+      // Clean up notes from any auto tags metadata to feed pure journaling text to Gemini
+      const todayNote = todayLog?.notas?.split('\n[IA]')[0] || '';
 
-      import('@/lib/gemini').then(({ getDailyInsight }) => {
-        getDailyInsight({ todayNote, history: notesHistory })
+      import('@/lib/gemini').then(({ getCognitiveReframing }) => {
+        getCognitiveReframing({ todayNote, history: notesHistory })
           .then(res => {
             if (active) {
-              setDailyInsight(res.insight || 'Tu mente encuentra balance cuando te permites expresar tus reflexiones.');
+              setReframingData(res);
             }
           })
           .catch(err => {
-            console.error('Error fetching daily insight:', err);
-            if (active) setDailyInsight('Tu mente encuentra balance cuando te permites expresar tus reflexiones.');
+            console.error('Error fetching cognitive reframing:', err);
+            if (active) {
+              setReframingData({
+                distortion_detected: 'Ninguna detectada',
+                explanation: 'No logramos analizar tu distorsión en este momento.',
+                reframing: 'Tu mente encuentra balance cuando te permites expresar tus reflexiones libremente.',
+                actions: [
+                  'Respira hondo durante 1 minuto.',
+                  'Date crédito por tomarte un momento para ti.',
+                  'Continúa con tu rutina de bienestar diaria.'
+                ]
+              });
+            }
           })
           .finally(() => {
-            if (active) setLoadingInsight(false);
+            if (active) setLoadingReframing(false);
           });
       });
     } else {
-      setDailyInsight('');
+      setReframingData(null);
+      setCompletedActions({});
     }
     return () => {
       active = false;
@@ -363,53 +378,116 @@ export function WellbeingView() {
               <div className="bg-gradient-to-br from-indigo-900/30 via-purple-900/30 to-pink-900/30 backdrop-blur-xl border border-purple-500/30 p-6 rounded-3xl shadow-md transition-all duration-500 animate-in fade-in zoom-in-95">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2 text-purple-300 font-bold uppercase tracking-wider text-xs">
-                    <Sparkles className="w-4 h-4 text-yellow-300 animate-spin-slow" />
-                    Insight del Día
+                    <Sparkles className="w-4 h-4 text-yellow-300 animate-pulse" />
+                    Reencuadre Cognitivo Activo
                   </div>
-                  <Unlock className="w-5 h-5 text-green-400 animate-pulse" />
+                  <Unlock className="w-5 h-5 text-emerald-400 animate-pulse" />
                 </div>
                 
-                {loadingInsight ? (
-                  <div className="flex items-center gap-2.5 py-4 text-purple-300/80 text-xs font-medium">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-300"></div>
-                    Descifrando tu mente...
+                {loadingReframing ? (
+                  <div className="flex items-center gap-2.5 py-8 text-purple-300/80 text-xs font-medium justify-center">
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-purple-400"></div>
+                    Desafiando distorsiones y reencuadrando...
                   </div>
-                ) : (
-                  <div className="space-y-3">
-                    <p className="text-base font-bold text-surface-900 dark:text-purple-50 leading-relaxed font-display">
-                      "{dailyInsight}"
-                    </p>
-                    <div className="w-full bg-purple-500/10 h-0.5 rounded-full"></div>
-                    <p className="text-[9px] text-purple-400 font-semibold leading-normal">
-                      ✨ Un pensamiento personalizado por Gemini para guiar tu introspección.
-                    </p>
+                ) : reframingData ? (
+                  <div className="space-y-4">
+                    {/* Distortion Block */}
+                    {reframingData.distortion_detected && reframingData.distortion_detected !== 'Ninguna' && reframingData.distortion_detected !== 'Ninguna detectada' ? (
+                      <div className="p-3.5 bg-red-500/10 border border-red-500/20 rounded-2xl animate-in slide-in-from-top-2">
+                        <div className="flex items-center gap-2 text-xs font-bold text-red-400">
+                          <span className="flex h-2 w-2 rounded-full bg-red-400 animate-ping"></span>
+                          <span className="flex h-2 w-2 rounded-full bg-red-500 absolute"></span>
+                          Distorsión: {reframingData.distortion_detected}
+                        </div>
+                        <p className="text-xs text-purple-200/90 mt-1.5 leading-relaxed">
+                          {reframingData.explanation}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-2xl">
+                        <div className="text-xs font-bold text-green-400 flex items-center gap-1.5">
+                          <span className="flex h-2 w-2 rounded-full bg-green-400"></span>
+                          Pensamiento Equilibrado
+                        </div>
+                        <p className="text-xs text-purple-200 mt-1 leading-relaxed">
+                          {reframingData.explanation || '¡Excelente! Tus reflexiones de hoy reflejan un enfoque sumamente objetivo y sano.'}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Reframing Block */}
+                    <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl shadow-inner">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
+                        <span className="flex h-2 w-2 rounded-full bg-emerald-400"></span>
+                        Reencuadre Saludable
+                      </div>
+                      <p className="text-sm font-semibold text-purple-50 mt-1.5 leading-relaxed font-display italic">
+                        "{reframingData.reframing}"
+                      </p>
+                    </div>
+
+                    {/* 3 Action Steps */}
+                    <div className="space-y-2.5 pt-2">
+                      <p className="text-[10px] font-bold text-purple-300 uppercase tracking-widest">
+                        📋 Micro-Acciones Recomendadas (menos de 10 min)
+                      </p>
+                      <div className="space-y-2">
+                        {reframingData.actions?.map((action: string, idx: number) => {
+                          const isDone = completedActions[idx];
+                          return (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => setCompletedActions(prev => ({ ...prev, [idx]: !prev[idx] }))}
+                              className={`w-full text-left p-3 rounded-xl border text-xs font-medium flex items-center gap-3 transition-all cursor-pointer ${
+                                isDone 
+                                  ? 'bg-purple-950/40 border-purple-500/20 text-purple-300/50 line-through' 
+                                  : 'bg-white/5 border-white/10 hover:bg-white/10 text-purple-100 hover:border-purple-500/30'
+                              }`}
+                            >
+                              <span className={`w-4 h-4 rounded-md border flex items-center justify-center flex-shrink-0 transition-colors ${
+                                isDone ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-white/20'
+                              }`}>
+                                {isDone && <svg viewBox="0 0 14 14" fill="none" className="w-3 h-3"><path d="M3 7.5L5.5 10L11 4" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                              </span>
+                              <span className="truncate">{action}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
-                )}
+                ) : null}
               </div>
             ) : (
               // LOCKED STATE
               <div className="bg-surface-100/50 dark:bg-surface-900/30 border border-surface-200/50 dark:border-surface-800/50 p-6 rounded-3xl shadow-sm relative overflow-hidden flex flex-col justify-between group">
                 {/* Blur Cover Overlay */}
                 <div className="absolute inset-0 bg-surface-50/20 dark:bg-surface-950/25 backdrop-blur-[5px] filter z-10 flex flex-col items-center justify-center p-6 text-center transition-all duration-300 group-hover:backdrop-blur-[3px]">
-                  <div className="bg-yellow-500/10 dark:bg-yellow-500/20 border border-yellow-500/20 p-3 rounded-full mb-3 text-yellow-600 dark:text-yellow-400 shadow-md animate-bounce">
+                  <div className="bg-purple-500/10 dark:bg-purple-500/20 border border-purple-500/20 p-3 rounded-full mb-3 text-purple-600 dark:text-purple-400 shadow-md animate-bounce">
                     <Lock className="w-6 h-6" />
                   </div>
                   <h4 className="text-sm font-bold text-surface-900 dark:text-surface-100 mb-1">Módulo Bloqueado</h4>
                   <p className="text-xs text-surface-500 dark:text-surface-400 max-w-xs leading-relaxed font-semibold">
-                    Registra tu check-in mental y escribe una reflexión hoy para desbloquear tu Insight del Día generado por la IA.
+                    Registra tu check-in mental y escribe una reflexión hoy para desbloquear tu Reencuadre Cognitivo Activo generado por la IA.
                   </p>
                 </div>
 
                 {/* Simulated content behind blur */}
-                <div className="opacity-20 pointer-events-none select-none">
+                <div className="opacity-15 pointer-events-none select-none space-y-4">
                   <div className="flex items-center justify-between mb-4">
-                    <span className="text-xs font-bold text-purple-400">Insight del Día</span>
+                    <span className="text-xs font-bold text-purple-400">Reencuadre Cognitivo Activo</span>
                     <Lock className="w-4 h-4" />
                   </div>
-                  <p className="text-sm font-display font-bold leading-relaxed mb-2">
-                    Tu mente encuentra calma cuando te permites expresar tus sentimientos de forma brutalmente honesta.
-                  </p>
-                  <p className="text-[10px] text-surface-400">Un pensamiento para guiar tu introspección.</p>
+                  <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-2xl">
+                    <div className="text-xs font-bold text-red-400">Distorsión: Pensamiento Blanco/Negro</div>
+                    <div className="h-2 w-24 bg-white/20 rounded mt-1.5"></div>
+                  </div>
+                  <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl">
+                    <div className="text-xs font-bold text-emerald-400">Reencuadre Saludable</div>
+                    <div className="h-3 w-full bg-white/20 rounded mt-1.5"></div>
+                    <div className="h-3 w-2/3 bg-white/20 rounded mt-1"></div>
+                  </div>
                 </div>
               </div>
             )}

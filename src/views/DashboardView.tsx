@@ -6,7 +6,6 @@ import { format, parseISO, isToday, isBefore, startOfWeek, differenceInMinutes, 
 import { es } from 'date-fns/locale';
 import { ConfirmationDialog } from '@/components/ui/ConfirmationDialog';
 import { logger } from '@/lib/logger';
-import { requestNotificationPermission, sendNotification } from '@/lib/notifications';
 import { useFlux } from '@/context/FluxContext';
 
 export function DashboardView() {
@@ -233,26 +232,6 @@ export function DashboardView() {
 
     return isPast20 && (hasPendingEvents || hasPendingCritical);
   }, [todayEvents, eventStatus]);
-
-  // Alerta proactiva de notificación push local cuando la racha está en peligro
-  useEffect(() => {
-    if (isStreakInDanger) {
-      const todayKey = new Date().toLocaleDateString('en-CA');
-      const notified = localStorage.getItem('flux_streak_danger_notified');
-      if (notified !== todayKey) {
-        requestNotificationPermission().then(granted => {
-          if (granted) {
-            sendNotification('🔥 ¡Racha en Peligro!', {
-              body: 'Son pasadas las 20:00 y tienes actividades deportivas o de agenda pendientes. ¡Compleméntalas hoy para mantener tu racha!',
-              tag: 'streak-danger',
-              requireInteraction: true
-            });
-            localStorage.setItem('flux_streak_danger_notified', todayKey);
-          }
-        });
-      }
-    }
-  }, [isStreakInDanger]);
 
   // Greeting based on time of day
   const greeting = useMemo(() => {

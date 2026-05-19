@@ -8,8 +8,6 @@ import { WellbeingView } from '@/views/WellbeingView';
 import { WeeklyReportView } from '@/views/WeeklyReportView';
 import { SettingsView } from '@/views/SettingsView';
 import { LoginView } from '@/views/LoginView';
-import { requestNotificationPermission, scheduleMorningBrief, startEventNotificationScheduler } from '@/lib/notifications';
-import { subscribeToPush } from '@/lib/pushSubscription';
 import { saveGoogleRefreshToken } from '@/lib/calendar';
 
 export default function App() {
@@ -42,19 +40,6 @@ export default function App() {
 
     return () => subscription.unsubscribe();
   }, []);
-
-  // Initialize notifications when logged in
-  useEffect(() => {
-    if (session) {
-      requestNotificationPermission().then((granted) => {
-        if (granted) {
-          scheduleMorningBrief();
-          // Subscribe to real push notifications (Service Worker + Push API)
-          subscribeToPush();
-        }
-      });
-    }
-  }, [session]);
 
   if (loading) {
     return (

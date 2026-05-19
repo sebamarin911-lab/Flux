@@ -7,7 +7,7 @@ import {
   AutoTagsSchema,
   FlowRecoverySchema,
   EvolutionSchema,
-  DailyInsightSchema,
+  CognitiveReframingSchema,
   safeValidate
 } from './validation';
 
@@ -127,7 +127,7 @@ async function callGemini(
 
     const payload = {
       generationConfig: {
-        maxOutputTokens: 180,
+        maxOutputTokens: 400,
         temperature: 0.25,
         responseMimeType: "application/json"
       },
@@ -242,11 +242,11 @@ export async function getEvolutionAnalysis(context: any) {
 }
 
 /**
- * [7] INSIGHT DEL DÍA
+ * [7] REENCUADRE COGNITIVO ACTIVO (TCC)
  * Context: { todayNote: string, history: string[] }
  */
-export async function getDailyInsight(context: any) {
-  const prompt = "Analizando la reflexión escrita hoy por el usuario y sus notas históricas de bienestar, genera una frase corta (de menos de 20 palabras) que le brinde un 'insight' profundo, filosófico o una perspectiva inesperada sobre su día para incentivar su introspección. Evita clichés vacíos. Devuelve estrictamente el formato JSON: { insight: string }.";
-  const fallback = DailyInsightSchema.parse({});
-  return callGemini(prompt, context, fallback, DailyInsightSchema);
+export async function getCognitiveReframing(context: any) {
+  const prompt = "Analiza el texto de reflexión/descarga mental escrito hoy por el usuario en busca de distorsiones cognitivas comunes (como catastrofismo, autoexigencia extrema, pensamiento blanco o negro, personalización, razonamiento emocional). Devuelve un objeto JSON estricto con los siguientes campos:\n- distortion_detected: Nombre de la distorsión principal detectada (ej. 'Autoexigencia Extrema', 'Catastrofismo', 'Filtro Mental Negativo', o 'Ninguna' si es equilibrado).\n- explanation: Breve explicación (máximo 25 palabras) de por qué se considera una distorsión en su pensamiento.\n- reframing: Un reencuadre positivo, realista, compasivo y objetivo de esa misma situación (máximo 40 palabras).\n- actions: Un arreglo estricto con exactamente 3 micro-acciones ultra-específicas, prácticas y viables que puede realizar hoy en menos de 10 minutos para aliviar la tensión o resolver el problema.\nTono: Empático, sabio y constructivo.";
+  const fallback = CognitiveReframingSchema.parse({});
+  return callGemini(prompt, context, fallback, CognitiveReframingSchema);
 }

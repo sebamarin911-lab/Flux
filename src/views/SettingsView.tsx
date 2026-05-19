@@ -1,22 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Bell, BellOff, Clock, Brain, Smartphone, Flame, Trophy } from 'lucide-react';
-import { 
-  getNotificationStatus, 
-  requestNotificationPermission,
-  scheduleMorningBrief 
-} from '@/lib/notifications';
-import { subscribeToPush, unsubscribeFromPush, isPushSubscribed } from '@/lib/pushSubscription';
+import { Flame, Trophy } from 'lucide-react';
 import { fetchUserStreak } from '@/lib/completedEvents';
 
 export function SettingsView() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [notifStatus, setNotifStatus] = useState(getNotificationStatus());
-  const [morningEnabled, setMorningEnabled] = useState(() => {
-    return localStorage.getItem('flux_morning_brief') !== 'false';
-  });
-  const [pushSubscribed, setPushSubscribed] = useState(false);
-  const [pushLoading, setPushLoading] = useState(false);
   const [streakInfo, setStreakInfo] = useState<{
     current_streak: number;
     max_racha_historica: number;
@@ -39,50 +27,13 @@ export function SettingsView() {
       });
     }
     loadStreak();
-
-    // Check push subscription status
-    isPushSubscribed().then(setPushSubscribed);
   }, []);
-
-  const handleEnableNotifications = async () => {
-    const granted = await requestNotificationPermission();
-    setNotifStatus(granted ? 'granted' : 'denied');
-    if (granted) {
-      scheduleMorningBrief();
-    }
-  };
-
-  const toggleMorning = () => {
-    const newVal = !morningEnabled;
-    setMorningEnabled(newVal);
-    localStorage.setItem('flux_morning_brief', newVal.toString());
-    if (newVal) {
-      scheduleMorningBrief();
-    }
-  };
-
-  const togglePushSubscription = async () => {
-    setPushLoading(true);
-    try {
-      if (pushSubscribed) {
-        await unsubscribeFromPush();
-        setPushSubscribed(false);
-      } else {
-        const success = await subscribeToPush();
-        setPushSubscribed(success);
-      }
-    } catch (err) {
-      console.error('Error toggling push:', err);
-    } finally {
-      setPushLoading(false);
-    }
-  };
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
       <div>
         <h1 className="text-3xl font-display font-bold">Ajustes</h1>
-        <p className="text-surface-500 mt-1">Administra tus conexiones, notificaciones e integraciones.</p>
+        <p className="text-surface-500 mt-1">Administra tus conexiones, logros e integraciones.</p>
       </div>
 
       <div className="space-y-6">
@@ -162,110 +113,6 @@ export function SettingsView() {
                  <span className="relative inline-flex rounded-full h-3 w-3 bg-flux-500"></span>
                </span>
                <span className="text-sm font-medium text-flux-600 dark:text-flux-400">Activo</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Notifications */}
-        <div className="bg-white dark:bg-surface-950 p-6 rounded-2xl border border-surface-100 dark:border-surface-800 shadow-sm">
-          <h2 className="text-xl font-semibold mb-4">Notificaciones</h2>
-          <div className="space-y-4">
-            {/* Permission Status */}
-            <div className="flex items-center justify-between p-4 bg-surface-50 dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800">
-              <div className="flex items-center gap-3">
-                {notifStatus === 'granted' 
-                  ? <Bell className="w-5 h-5 text-flux-500" />
-                  : <BellOff className="w-5 h-5 text-surface-400" />
-                }
-                <div>
-                  <p className="font-medium">Notificaciones Push</p>
-                  <p className="text-sm text-surface-500">
-                    {notifStatus === 'granted' ? 'Activadas' : 
-                     notifStatus === 'denied' ? 'Bloqueadas por el navegador' : 
-                     notifStatus === 'unsupported' ? 'No soportadas' : 'Desactivadas'}
-                  </p>
-                </div>
-              </div>
-              {notifStatus !== 'granted' && notifStatus !== 'unsupported' && (
-                <button 
-                  onClick={handleEnableNotifications}
-                  className="px-4 py-2 bg-flux-500 hover:bg-flux-600 text-white rounded-lg text-sm font-medium transition-colors"
-                >
-                  Activar
-                </button>
-              )}
-              {notifStatus === 'granted' && (
-                <div className="flex items-center gap-2">
-                  <span className="flex h-3 w-3 relative">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
-                  </span>
-                  <span className="text-sm font-medium text-green-600 dark:text-green-400">Activo</span>
-                </div>
-              )}
-            </div>
-
-            {/* Push Subscription (Service Worker) */}
-            <div className="flex items-center justify-between p-4 bg-surface-50 dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800">
-              <div className="flex items-center gap-3">
-                <Smartphone className="w-5 h-5 text-flux-500" />
-                <div>
-                  <p className="font-medium">Notificaciones en Pantalla de Bloqueo</p>
-                  <p className="text-sm text-surface-500">
-                    {pushSubscribed 
-                      ? 'Recibirás notificaciones incluso con la app cerrada' 
-                      : 'Activa para recibir notificaciones en tu pantalla de bloqueo'
-                    }
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={togglePushSubscription}
-                disabled={notifStatus !== 'granted' || pushLoading}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  pushSubscribed ? 'bg-flux-500' : 'bg-surface-300 dark:bg-surface-600'
-                } ${notifStatus !== 'granted' || pushLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
-                  pushSubscribed ? 'translate-x-6' : 'translate-x-1'
-                }`} />
-              </button>
-            </div>
-
-            {/* Event Reminders */}
-            <div className="flex items-center justify-between p-4 bg-surface-50 dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800">
-              <div className="flex items-center gap-3">
-                <Clock className="w-5 h-5 text-blue-500" />
-                <div>
-                  <p className="font-medium">Recordatorios de Eventos</p>
-                  <p className="text-sm text-surface-500">15 minutos antes de cada evento</p>
-                </div>
-              </div>
-              <span className={`text-sm font-medium ${notifStatus === 'granted' ? 'text-green-600 dark:text-green-400' : 'text-surface-400'}`}>
-                {notifStatus === 'granted' ? 'Activo' : 'Requiere notificaciones'}
-              </span>
-            </div>
-
-            {/* Morning Brief */}
-            <div className="flex items-center justify-between p-4 bg-surface-50 dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800">
-              <div className="flex items-center gap-3">
-                <Brain className="w-5 h-5 text-purple-500" />
-                <div>
-                  <p className="font-medium">Brief Matutino</p>
-                  <p className="text-sm text-surface-500">Resumen y motivación a las 07:30</p>
-                </div>
-              </div>
-              <button
-                onClick={toggleMorning}
-                disabled={notifStatus !== 'granted'}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  morningEnabled && notifStatus === 'granted' ? 'bg-flux-500' : 'bg-surface-300 dark:bg-surface-600'
-                } ${notifStatus !== 'granted' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
-                  morningEnabled && notifStatus === 'granted' ? 'translate-x-6' : 'translate-x-1'
-                }`} />
-              </button>
             </div>
           </div>
         </div>

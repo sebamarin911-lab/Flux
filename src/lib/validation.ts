@@ -60,9 +60,18 @@ export const EvolutionSchema = z.object({
   evolution: z.string().default('Continúa registrando tu sentir para perfilar tu evolución emocional.')
 });
 
-export const DailyInsightSchema = z.object({
-  insight: z.string().default('Tu mente encuentra orden cuando te permites expresar tus reflexiones sin filtros.')
+export const CognitiveReframingSchema = z.object({
+  distortion_detected: z.string().default('Ninguna detectada'),
+  explanation: z.string().default('Tu pensamiento parece objetivo y equilibrado hoy.'),
+  reframing: z.string().default('Continúa cultivando este enfoque compasivo y constructivo.'),
+  actions: z.array(z.string()).max(3).default([
+    'Respira hondo y felicítate por tu honestidad.',
+    'Dedica 5 minutos a una actividad que disfrutes.',
+    'Sigue registrando tu sentir cuando lo necesites.'
+  ])
 });
+
+export type CognitiveReframing = z.infer<typeof CognitiveReframingSchema>;
 
 // ─── Wellbeing Logs Validation ──────────────────────────────────────
 export const WellbeingLogSchema = z.object({

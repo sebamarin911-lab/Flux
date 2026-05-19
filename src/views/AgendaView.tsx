@@ -1,8 +1,7 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Clock, MapPin, Plus, X, Calendar as CalendarIcon, Flame, Trophy, Pencil, Trash2, CheckCircle2 } from 'lucide-react';
 import { format, parseISO, isToday, addDays, addHours, eachDayOfInterval, startOfWeek, startOfMinute, differenceInMinutes, addMinutes } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { startEventNotificationScheduler, stopEventNotificationScheduler } from '@/lib/notifications';
 import { ConfirmationDialog } from '@/components/ui/ConfirmationDialog';
 import { useFlux } from '@/context/FluxContext';
 
@@ -56,19 +55,6 @@ export function AgendaView() {
     reason: '',
     eventToDelete: null
   });
-
-  useEffect(() => {
-    return () => stopEventNotificationScheduler();
-  }, []);
-
-  // Start notification scheduler when events change
-  const eventsRef = useRef(events);
-  eventsRef.current = events;
-  useEffect(() => {
-    if (events.length > 0) {
-      startEventNotificationScheduler(() => eventsRef.current);
-    }
-  }, [events]);
 
   // Calculate real streaks
   const streaks = useMemo(() => {
