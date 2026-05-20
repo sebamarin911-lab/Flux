@@ -94,6 +94,9 @@ function logUsage(promptHash: string, tokensEstimados: number) {
 }
 
 // ─── Core HTTP Client with Zod Validation ─────────────────────────────
+// Global sequential queue to prevent concurrent API requests triggering HTTP 429 (Rate Limit) on Gemini Free Tier.
+let apiRequestQueue: Promise<any> = Promise.resolve();
+
 async function callGemini(
   prompt: string,
   context: any,
@@ -105,17 +108,17 @@ async function callGemini(
     return fallback;
   }
 
-  logger.info('Gemini', 'Initiating call to Gemini 1.5 Flash...');
-  try {
-    const contextStr = JSON.stringify(context);
-    const dateStr = new Date().toISOString().split('T')[0];
-    const rawHashStr = `${prompt}-${contextStr}`;
-    const hash = await hashString(rawHashStr);
-    const cacheKey = `ai_cache:${dateStr}:${hash}`;
+  // 1. Calculate cache key and check IndexedDB cache BEFORE queuing
+  const contextStr = JSON.stringify(context);
+  const dateStr = new Date().toISOString().split('T')[0];
+  const rawHashStr = `${prompt}-${contextStr}`;
+  const hash = await hashString(rawHashStr);
+  const cacheKey = `ai_cache:${dateStr}:${hash}`;
 
+  try {
     const cached = await getCachedResponse(cacheKey);
     if (cached) {
-      logger.info('Gemini', 'Cache hit. Returning cached AI response.');
+      logger.info('Gemini', 'Cache hit. Returning cached AI response immediately.');
       if (schema) {
         const validated = schema.safeParse(cached);
         if (validated.success) return validated.data;
@@ -124,7 +127,25 @@ async function callGemini(
         return cached;
       }
     }
+  } catch (cacheErr) {
+    logger.warn('Gemini Cache', 'Failed to check cache, proceeding to network', cacheErr);
+  }
 
+  // 2. Cache miss: Queue the actual API request to ensure serial execution with a 1.5s gap
+  const currentQueue = apiRequestQueue;
+  let resolveQueue: (value?: any) => void = () => {};
+  apiRequestQueue = new Promise((resolve) => {
+    resolveQueue = resolve;
+  });
+
+  try {
+    await currentQueue;
+  } catch (queueErr) {
+    // Ignore errors from previous queued requests to keep the queue moving
+  }
+
+  logger.info('Gemini', 'Initiating call to Gemini 2.5 Flash...');
+  try {
     const payload = {
       generationConfig: {
         maxOutputTokens: 400,
@@ -176,6 +197,11 @@ async function callGemini(
   } catch (err) {
     logger.error('Gemini', 'Error calling API, returning safe fallback data', err);
     return fallback;
+  } finally {
+    // Introduce a 1.5s delay before letting the next queued request execute to avoid rate limits
+    setTimeout(() => {
+      resolveQueue();
+    }, 1500);
   }
 }
 
