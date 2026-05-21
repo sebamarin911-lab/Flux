@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Link, useNavigate } from 'react-router-dom';
 import { Calendar, Activity, Flame, Trophy, ArrowRight, Clock, MapPin, Zap, Brain, TrendingUp, Sun, Moon, AlertCircle, Pencil, Trash2, CheckCircle2 } from 'lucide-react';
@@ -20,11 +20,25 @@ export function DashboardView() {
     refreshData,
     toggleEventCompletion,
     updateCalendarEvent,
-    deleteCalendarEvent
+    deleteCalendarEvent,
+    saveWellbeingReflection
   } = useFlux();
 
   const [localLoading, setLocalLoading] = useState(false);
   const [userName, setUserName] = useState('');
+
+  // Interactive Greeting & Tips & Mood track states
+  const [vibeOverride, setVibeOverride] = useState<'morning' | 'afternoon' | 'evening' | null>(null);
+  const [revealedTip, setRevealedTip] = useState<string | null>(null);
+  const [tipPulse, setTipPulse] = useState(false);
+  const [savingMood, setSavingMood] = useState(false);
+  const [moodSuccess, setMoodSuccess] = useState(false);
+
+  // Confetti / Celebration states
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [celebratedToday, setCelebratedToday] = useState(false);
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Today's events
   const todayEvents = useMemo(() => {
@@ -217,6 +231,9 @@ export function DashboardView() {
   };
 
   const toggleEventComplete = async (id: string) => {
+    if (navigator.vibrate) {
+      navigator.vibrate(15);
+    }
     await toggleEventCompletion(id);
   };
 
@@ -233,13 +250,40 @@ export function DashboardView() {
     return isPast20 && (hasPendingEvents || hasPendingCritical);
   }, [todayEvents, eventStatus]);
 
-  // Greeting based on time of day
-  const greeting = useMemo(() => {
-    const hour = new Date().getHours();
-    if (hour < 12) return { text: 'Buenos días', icon: Sun, emoji: '☀️' };
-    if (hour < 19) return { text: 'Buenas tardes', icon: Sun, emoji: '🌤️' };
-    return { text: 'Buenas noches', icon: Moon, emoji: '🌙' };
+  const currentPeriod = useMemo(() => {
+    const h = new Date().getHours();
+    if (h < 12) return 'morning';
+    if (h < 19) return 'afternoon';
+    return 'evening';
   }, []);
+
+  const activePeriod = vibeOverride || currentPeriod;
+
+  // Greeting based on active period
+  const greeting = useMemo(() => {
+    if (activePeriod === 'morning') {
+      return { 
+        text: '¡Buenos días!', 
+        icon: '🌅', 
+        desc: 'Un nuevo amanecer para conquistar tus metas.', 
+        bg: 'from-amber-400 via-orange-500 to-red-500 animate-glow-orange' 
+      };
+    }
+    if (activePeriod === 'afternoon') {
+      return { 
+        text: '¡Buenas tardes!', 
+        icon: '🌤️', 
+        desc: 'Mantén el enfoque y el gran impulso de hoy.', 
+        bg: 'from-teal-400 via-flux-500 to-indigo-650 animate-glow-teal' 
+      };
+    }
+    return { 
+      text: '¡Buenas noches!', 
+      icon: '🌙', 
+      desc: 'Es hora de descansar y agradecer tus logros.', 
+      bg: 'from-indigo-950 via-purple-900 to-black animate-glow-purple' 
+    };
+  }, [activePeriod]);
 
   // Next upcoming event (from now forward)
   const nextEvent = useMemo(() => {
@@ -293,6 +337,164 @@ export function DashboardView() {
     return todayEvents.filter(e => eventStatus[e.id]).length;
   }, [todayEvents, eventStatus]);
 
+  const allEventsCompleted = useMemo(() => {
+    return todayEvents.length > 0 && todayCompletedCount === todayEvents.length;
+  }, [todayEvents, todayCompletedCount]);
+
+  useEffect(() => {
+    if (allEventsCompleted && !celebratedToday) {
+      setShowCelebration(true);
+      setCelebratedToday(true);
+    } else if (!allEventsCompleted) {
+      setCelebratedToday(false);
+      setShowCelebration(false);
+    }
+  }, [allEventsCompleted, celebratedToday]);
+
+  interface ConfettiParticle {
+    x: number;
+    y: number;
+    size: number;
+    color: string;
+    shape: 'circle' | 'square' | 'triangle' | 'emoji';
+    emoji?: string;
+    vx: number;
+    vy: number;
+    rotation: number;
+    rotationSpeed: number;
+    opacity: number;
+  }
+
+  useEffect(() => {
+    if (!showCelebration || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let animationFrameId: number;
+    let width = (canvas.width = window.innerWidth);
+    let height = (canvas.height = window.innerHeight);
+
+    const handleResize = () => {
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+    };
+    window.addEventListener('resize', handleResize);
+
+    const colors = ['#14b8a6', '#2dd4bf', '#a855f7', '#ec4899', '#f97316', '#ef4444', '#3b82f6', '#10b981'];
+    const emojis = ['🎉', '🚀', '🏆', '🔥', '✨', '💯', '👑', '💪', '🎯'];
+    const particles: ConfettiParticle[] = [];
+
+    const spawnParticles = () => {
+      // Left cannon
+      for (let i = 0; i < 65; i++) {
+        particles.push({
+          x: 0,
+          y: height + 20,
+          size: 8 + Math.random() * 14,
+          color: colors[Math.floor(Math.random() * colors.length)],
+          shape: Math.random() > 0.45 ? (Math.random() > 0.5 ? 'square' : 'circle') : (Math.random() > 0.5 ? 'triangle' : 'emoji'),
+          emoji: emojis[Math.floor(Math.random() * emojis.length)],
+          vx: 6 + Math.random() * 14,
+          vy: -(14 + Math.random() * 18),
+          rotation: Math.random() * 360,
+          rotationSpeed: (Math.random() - 0.5) * 12,
+          opacity: 1
+        });
+      }
+      // Right cannon
+      for (let i = 0; i < 65; i++) {
+        particles.push({
+          x: width,
+          y: height + 20,
+          size: 8 + Math.random() * 14,
+          color: colors[Math.floor(Math.random() * colors.length)],
+          shape: Math.random() > 0.45 ? (Math.random() > 0.5 ? 'square' : 'circle') : (Math.random() > 0.5 ? 'triangle' : 'emoji'),
+          emoji: emojis[Math.floor(Math.random() * emojis.length)],
+          vx: -(6 + Math.random() * 14),
+          vy: -(14 + Math.random() * 18),
+          rotation: Math.random() * 360,
+          rotationSpeed: (Math.random() - 0.5) * 12,
+          opacity: 1
+        });
+      }
+    };
+
+    spawnParticles();
+
+    if (navigator.vibrate) {
+      navigator.vibrate([100, 50, 100, 50, 200]);
+    }
+
+    const gravity = 0.45;
+    const drag = 0.985;
+
+    const render = () => {
+      ctx.clearRect(0, 0, width, height);
+      let active = false;
+
+      for (let p of particles) {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vx *= drag;
+        p.vy = p.vy * drag + gravity;
+        p.rotation += p.rotationSpeed;
+
+        if (p.y < height + 40 && p.opacity > 0) {
+          active = true;
+          ctx.save();
+          ctx.globalAlpha = p.opacity;
+          ctx.translate(p.x, p.y);
+          ctx.rotate((p.rotation * Math.PI) / 180);
+
+          if (p.shape === 'emoji' && p.emoji) {
+            ctx.font = `${p.size * 1.5}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(p.emoji, 0, 0);
+          } else {
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            if (p.shape === 'circle') {
+              ctx.arc(0, 0, p.size / 2, 0, Math.PI * 2);
+              ctx.fill();
+            } else if (p.shape === 'triangle') {
+              ctx.moveTo(0, -p.size / 2);
+              ctx.lineTo(p.size / 2, p.size / 2);
+              ctx.lineTo(-p.size / 2, p.size / 2);
+              ctx.closePath();
+              ctx.fill();
+            } else {
+              ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
+            }
+          }
+          ctx.restore();
+
+          if (p.y > height * 0.6) {
+            p.opacity -= 0.015;
+          }
+        }
+      }
+
+      if (active) {
+        animationFrameId = requestAnimationFrame(render);
+      }
+    };
+
+    render();
+
+    (window as any).reFireConfetti = () => {
+      spawnParticles();
+      if (navigator.vibrate) navigator.vibrate([100, 50, 150]);
+    };
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      cancelAnimationFrame(animationFrameId);
+      delete (window as any).reFireConfetti;
+    };
+  }, [showCelebration]);
+
   if (loading) {
     return (
       <div className="flex justify-center items-center p-20">
@@ -302,35 +504,218 @@ export function DashboardView() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-8">
-      {/* Greeting Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div>
-          <p className="text-surface-500 dark:text-surface-400 text-sm font-medium capitalize">
-            {format(new Date(), "EEEE, d 'de' MMMM", { locale: es })}
-          </p>
-          <h1 className="text-3xl md:text-4xl font-display font-bold text-surface-900 dark:text-surface-50 mt-1">
-            {greeting.emoji} {greeting.text}, {userName}
-          </h1>
+    <div className="max-w-6xl mx-auto space-y-8 pb-10">
+      {/* Dynamic Mobile-First Interactive Greeting Card */}
+      <div 
+        onClick={() => {
+          const dailyTips = [
+            "💧 ¡Hidratación! Toma un vaso de agua ahora mismo para activar tu mente y cuerpo.",
+            "⏱️ Regla de 2 Minutos: Si una tarea pendiente toma menos de 2 minutos, ¡hazla ahora!",
+            "🧘 Respiro Consciente: Tómate 3 respiraciones lentas e inhalaciones profundas para calmar tu sistema.",
+            "🚶 Estiramiento Express: Levántate y estira tus brazos y espalda por 30 segundos.",
+            "👁️ Regla 20-20-20: Mira un objeto a 6 metros de distancia durante 20 segundos para relajar la vista.",
+            "📝 Prioridad de Enfoque: Identifica tu meta número 1 de hoy y pon toda tu energía en ella primero.",
+            "✨ Agradecimiento: Piensa en una sola cosa por la que estés agradecido en este instante.",
+            "🎧 Enfoque Binaural: Escucha ruido blanco o música clásica para aislar distracciones y concentrarte.",
+            "🔋 Siesta Energética: Si te sientes agotado, una siesta corta de 15 minutos reiniciará tu corteza prefrontal.",
+            "🍏 Micro-Snack Saludable: Come un puñado de frutos secos o una fruta para un boost de energía."
+          ];
+          setRevealedTip(prev => prev ? null : dailyTips[new Date().getDay() % dailyTips.length]);
+        }}
+        className={`relative overflow-hidden rounded-3xl p-6 text-white shadow-xl bg-gradient-to-br ${greeting.bg} border border-white/10 group cursor-pointer active:scale-[0.985] md:hover:scale-[1.01] transition-all duration-300 select-none`}
+      >
+        {/* Dynamic decorative backdrop grids */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white/20 via-transparent to-transparent opacity-80 pointer-events-none" />
+        <div className="absolute -top-12 -right-12 w-32 h-32 bg-white/15 rounded-full blur-2xl group-hover:scale-125 transition-transform duration-500 pointer-events-none" />
+        <div className="absolute -bottom-8 -left-8 w-24 h-24 bg-white/10 rounded-full blur-xl pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col gap-5">
+          {/* Header row: Time period and Vibe overrides */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider bg-white/20 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10 shadow-sm">
+              {format(new Date(), "EEEE, d 'de' MMMM", { locale: es })}
+            </span>
+            
+            {/* Dynamic Mobile Switcher */}
+            <div className="flex items-center gap-1 bg-white/10 backdrop-blur-md p-1 rounded-2xl border border-white/10 pointer-events-auto">
+              <button 
+                onClick={(e) => { e.stopPropagation(); if(navigator.vibrate) navigator.vibrate(10); setVibeOverride('morning'); }}
+                className={`px-2.5 py-1 rounded-xl text-[10px] font-extrabold transition-all cursor-pointer ${activePeriod === 'morning' ? 'bg-white text-surface-900 shadow-sm scale-105' : 'text-white/80 hover:bg-white/10'}`}
+              >
+                🌅 Mañana
+              </button>
+              <button 
+                onClick={(e) => { e.stopPropagation(); if(navigator.vibrate) navigator.vibrate(10); setVibeOverride('afternoon'); }}
+                className={`px-2.5 py-1 rounded-xl text-[10px] font-extrabold transition-all cursor-pointer ${activePeriod === 'afternoon' ? 'bg-white text-surface-900 shadow-sm scale-105' : 'text-white/80 hover:bg-white/10'}`}
+              >
+                🌤️ Tarde
+              </button>
+              <button 
+                onClick={(e) => { e.stopPropagation(); if(navigator.vibrate) navigator.vibrate(10); setVibeOverride('evening'); }}
+                className={`px-2.5 py-1 rounded-xl text-[10px] font-extrabold transition-all cursor-pointer ${activePeriod === 'evening' ? 'bg-white text-surface-900 shadow-sm scale-105' : 'text-white/80 hover:bg-white/10'}`}
+              >
+                🌙 Noche
+              </button>
+              {vibeOverride && (
+                <button 
+                  onClick={(e) => { e.stopPropagation(); if(navigator.vibrate) navigator.vibrate(12); setVibeOverride(null); }}
+                  className="px-2 py-1 rounded-xl text-[10px] font-black text-white bg-white/20 hover:bg-white/30 transition-all cursor-pointer"
+                  title="Reset a hora local"
+                >
+                  ⏱️
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Main Title and Pending Activities count */}
+          <div className="space-y-1.5">
+            <h1 className="text-3xl md:text-5xl font-display font-black tracking-tight mt-1">
+              {greeting.text} <span className="underline decoration-wavy decoration-white/30">{userName}</span>! {greeting.icon}
+            </h1>
+            <p className="text-xs font-semibold opacity-95 max-w-xl">
+              {greeting.desc} Hoy tienes <span className="bg-white/25 px-2 py-0.5 rounded-lg font-black">{todayEvents.length - todayCompletedCount}</span> actividades pendientes de resolver.
+            </p>
+          </div>
+
+          {/* Core interactive buttons */}
+          <div className="flex gap-2.5 flex-shrink-0 pointer-events-auto">
+            <Link 
+              to="/agenda"
+              onClick={(e) => e.stopPropagation()}
+              className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-white text-surface-900 hover:bg-surface-50 rounded-2xl transition-all duration-300 font-extrabold text-[11px] shadow-md active:scale-95"
+            >
+              <Calendar className="w-3.5 h-3.5 text-flux-600" /> Mi Agenda
+            </Link>
+
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                const dailyTips = [
+                  "💧 ¡Hidratación! Toma un vaso de agua ahora mismo para activar tu mente y cuerpo.",
+                  "⏱️ Regla de 2 Minutos: Si una tarea pendiente toma menos de 2 minutos, ¡hazla ahora!",
+                  "🧘 Respiro Consciente: Tómate 3 respiraciones lentas e inhalaciones profundas para calmar tu sistema.",
+                  "🚶 Estiramiento Express: Levántate y estira tus brazos y espalda por 30 segundos.",
+                  "👁️ Regla 20-20-20: Mira un objeto a 6 metros de distancia durante 20 segundos para relajar la vista.",
+                  "📝 Prioridad de Enfoque: Identifica tu meta número 1 de hoy y pon toda tu energía en ella primero.",
+                  "✨ Agradecimiento: Piensa en una sola cosa por la que estés agradecido en este instante.",
+                  "🎧 Enfoque Binaural: Escucha ruido blanco o música clásica para aislar distracciones y concentrarte.",
+                  "🔋 Siesta Energética: Si te sientes agotado, una siesta corta de 15 minutos reiniciará tu corteza prefrontal.",
+                  "🍏 Micro-Snack Saludable: Come un puñado de frutos secos o una fruta para un boost de energía."
+                ];
+                if (navigator.vibrate) navigator.vibrate(15);
+                setRevealedTip(prev => prev ? null : dailyTips[new Date().getDay() % dailyTips.length]);
+              }}
+              className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-white/15 hover:bg-white/25 text-white border border-white/15 rounded-2xl transition-all duration-300 font-extrabold text-[11px] shadow-md active:scale-95 cursor-pointer"
+            >
+              💡 {revealedTip ? 'Ocultar Tip' : 'Ver Consejo'}
+            </button>
+          </div>
+
+          {/* Quick mood selector directly in greeting card for phone */}
+          <div className="pt-4 border-t border-white/15 pointer-events-auto">
+            <p className="text-[10px] font-extrabold text-white/90 mb-2.5 flex items-center gap-1.5">
+              ¿Cómo te sientes en este instante?
+              {savingMood && <span className="inline-block animate-spin rounded-full h-3 w-3 border-b-2 border-white ml-1.5"></span>}
+              {moodSuccess && <span className="text-green-300 font-extrabold animate-bounce ml-1.5">¡Ánimo guardado! ✨</span>}
+            </p>
+            <div className="flex gap-2">
+              {[
+                { score: 1, emoji: '😞', label: 'Agotado' },
+                { score: 2, emoji: '😐', label: 'Normal' },
+                { score: 3, emoji: '😌', label: 'Enfocado' },
+                { score: 4, emoji: '😊', label: 'Feliz' },
+                { score: 5, emoji: '⚡', label: 'Imparable' }
+              ].map((m) => {
+                const isSelected = todayMentalScore === m.score;
+                return (
+                  <button
+                    key={m.score}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (navigator.vibrate) navigator.vibrate(15);
+                      setSavingMood(true);
+                      setMoodSuccess(false);
+                      try {
+                        const ok = await saveWellbeingReflection(m.score, "");
+                        if (ok) {
+                          setMoodSuccess(true);
+                          setTimeout(() => setMoodSuccess(false), 3000);
+                        }
+                      } catch (err) {
+                        console.error(err);
+                      } finally {
+                        setSavingMood(false);
+                      }
+                    }}
+                    className={`flex-1 flex flex-col items-center justify-center py-2 px-0.5 rounded-xl border transition-all active:scale-[0.88] duration-200 cursor-pointer ${
+                      isSelected 
+                        ? 'bg-white text-surface-900 border-white shadow-md font-extrabold scale-105' 
+                        : 'bg-white/10 text-white border-white/10 hover:bg-white/20'
+                    }`}
+                  >
+                    <span className="text-xl mb-0.5 filter drop-shadow-sm">{m.emoji}</span>
+                    <span className="text-[8px] font-extrabold tracking-tight opacity-90">{m.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Link 
-            to="/agenda"
-            className="flex items-center gap-2 px-4 py-2 bg-flux-500 hover:bg-flux-600 text-white rounded-xl transition-colors font-medium shadow-sm text-sm"
+
+        {/* Revealed tip expandable block */}
+        <div className={`relative z-10 transition-all duration-500 overflow-hidden ${
+          revealedTip ? 'max-h-48 opacity-100 mt-5 pt-4 border-t border-white/15' : 'max-h-0 opacity-0'
+        }`}>
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className={`relative bg-white/15 backdrop-blur-xl border border-white/10 p-4 rounded-2xl pointer-events-auto transition-all duration-300 ${tipPulse ? 'scale-95 border-teal-300 bg-teal-500/25 animate-shake' : ''}`}
           >
-            <Calendar className="w-4 h-4" /> Ver Agenda
-          </Link>
+            <p className="text-xs font-bold leading-relaxed text-white">
+              💡 {revealedTip}
+            </p>
+            <div className="flex justify-end mt-3">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (navigator.vibrate) navigator.vibrate(15);
+                  setTipPulse(true);
+                  setTimeout(() => setTipPulse(false), 400);
+                  const tips = [
+                    "💧 ¡Hidratación! Toma un vaso de agua ahora mismo para activar tu mente y cuerpo.",
+                    "⏱️ Regla de 2 Minutos: Si una tarea pendiente toma menos de 2 minutos, ¡hazla ahora!",
+                    "🧘 Respiro Consciente: Tómate 3 respiraciones lentas e inhalaciones profundas para calmar tu sistema.",
+                    "🚶 Estiramiento Express: Levántate y estira tus brazos y espalda por 30 segundos.",
+                    "👁️ Regla 20-20-20: Mira un objeto a 6 metros de distancia durante 20 segundos para relajar la vista.",
+                    "📝 Prioridad de Enfoque: Identifica tu meta número 1 de hoy y pon toda tu energía en ella primero.",
+                    "✨ Agradecimiento: Piensa en una sola cosa por la que estés agradecido en este instante.",
+                    "🎧 Enfoque Binaural: Escucha ruido blanco o música clásica para aislar distracciones y concentrarte.",
+                    "🔋 Siesta Energética: Si te sientes agotado, una siesta corta de 15 minutos reiniciará tu corteza prefrontal.",
+                    "🍏 Micro-Snack Saludable: Come un puñado de frutos secos o una fruta para un boost de energía."
+                  ];
+                  const availableTips = tips.filter(t => t !== revealedTip);
+                  const nextTip = availableTips[Math.floor(Math.random() * availableTips.length)];
+                  setRevealedTip(nextTip);
+                }}
+                className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded-xl text-[9px] font-extrabold transition-all border border-white/10 cursor-pointer active:scale-95 flex items-center gap-1 shadow-sm"
+              >
+                🔄 Cambiar Tip
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Calendar Error Alert */}
       {calendarError && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/50 p-4 rounded-2xl flex items-center justify-between gap-4">
+        <div className="bg-red-500/10 border border-red-500/20 dark:border-red-500/30 p-4 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-4 backdrop-blur-md shadow-sm">
           <div className="flex items-center gap-3">
-            <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+            <div className="w-10 h-10 rounded-2xl bg-red-500/20 flex items-center justify-center text-red-500">
+              <AlertCircle className="w-5 h-5" />
+            </div>
             <div>
-              <p className="text-sm font-semibold text-red-900 dark:text-red-100">Conexión con Google Calendar perdida</p>
-              <p className="text-xs text-red-700 dark:text-red-400">{calendarError}</p>
+              <p className="text-sm font-bold text-red-900 dark:text-red-350">Conexión con Google Calendar perdida</p>
+              <p className="text-xs text-red-700/80 dark:text-red-400/80">{calendarError}</p>
             </div>
           </div>
           <button 
@@ -353,146 +738,159 @@ export function DashboardView() {
                 alert('No se pudo iniciar la reconexión. Inténtalo de nuevo.');
               }
             }}
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer whitespace-nowrap"
+            className="w-full sm:w-auto px-5 py-2.5 bg-red-500 hover:bg-red-650 text-white text-xs font-extrabold rounded-2xl transition-all duration-300 shadow-md shadow-red-500/10 hover:shadow-red-500/25 cursor-pointer whitespace-nowrap"
           >
-            Reconectar
+            Reconectar Cuenta
           </button>
         </div>
       )}
 
-      {/* Quick Stats Row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Quick Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
         {/* Streak Centerpiece Card (🔥) */}
-        <div className={`p-5 rounded-2xl text-white relative overflow-hidden transition-all duration-500 flex flex-col justify-between ${
+        <div className={`p-6 rounded-3xl text-white relative overflow-hidden transition-all duration-500 flex flex-col justify-between group shadow-xl ${
           isStreakInDanger 
-            ? 'bg-gradient-to-br from-red-600 via-orange-500 to-red-700 animate-pulse-slow animate-glow-red border border-red-400/30' 
-            : 'bg-gradient-to-br from-orange-500 via-amber-500 to-red-600 animate-glow-orange'
+            ? 'bg-gradient-to-br from-red-600 via-orange-500 to-red-700 animate-pulse-slow animate-glow-red border border-red-500/30' 
+            : 'bg-gradient-to-br from-orange-500 via-amber-500 to-red-650 animate-glow-orange border border-white/10'
         }`}>
           {/* Decorative floating shapes */}
-          <div className="absolute -top-10 -right-10 w-24 h-24 bg-white/10 rounded-full blur-lg"></div>
-          <div className="absolute -bottom-6 -left-6 w-20 h-20 bg-white/5 rounded-full blur-md"></div>
+          <div className="absolute -top-12 -right-12 w-28 h-28 bg-white/10 rounded-full blur-xl group-hover:scale-110 transition-transform duration-500"></div>
+          <div className="absolute -bottom-8 -left-8 w-24 h-24 bg-white/5 rounded-full blur-md"></div>
           
-          <div className="relative z-10 flex flex-col h-full justify-between">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider bg-white/20 backdrop-blur-sm px-2.5 py-1 rounded-full">
+          <div className="relative z-10 flex flex-col h-full justify-between gap-6">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider bg-white/20 backdrop-blur-md px-3 py-1 rounded-full border border-white/10">
                 {isStreakInDanger ? '⚠️ En Peligro' : '⚡ Racha Deportiva'}
               </span>
-              <Flame className={`w-6 h-6 text-white ${isStreakInDanger ? 'animate-bounce' : 'animate-pulse'}`} />
+              <div className="w-8 h-8 rounded-full bg-white/15 flex items-center justify-center backdrop-blur-sm">
+                <Flame className={`w-5 h-5 text-white ${isStreakInDanger ? 'animate-bounce' : 'animate-pulse'}`} />
+              </div>
             </div>
 
-            <div className="my-2">
-              <div className="flex items-baseline gap-1">
-                <span className="text-4xl font-extrabold tracking-tight filter drop-shadow-sm">
+            <div className="my-1">
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-5xl font-extrabold tracking-tight filter drop-shadow-md">
                   {streakInfo.current_streak}
                 </span>
-                <span className="text-xs font-semibold opacity-90">días 🔥</span>
+                <span className="text-sm font-semibold opacity-90">días activos</span>
               </div>
-              <p className="text-[10px] opacity-90 mt-1 font-medium leading-tight">
+              <p className="text-[11px] opacity-85 mt-2 font-medium leading-relaxed">
                 {isStreakInDanger 
                   ? '¡Completa tus metas deportivas hoy antes de las 00:00!' 
                   : streakInfo.current_streak > 0 
-                    ? '¡Tu fuego brilla con fuerza! Sigue así.' 
-                    : '¡Comienza hoy completando tu primera meta!'}
+                    ? '¡Tu constancia deportiva es excelente! Sigue manteniendo viva la llama.' 
+                    : '¡Comienza hoy completando tu primera meta deportiva!'}
               </p>
             </div>
 
-            <div className="mt-4 pt-3 border-t border-white/25 flex items-center justify-between text-xs font-semibold">
-              <span className="opacity-80">Récord Histórico:</span>
-              <span className="flex items-center gap-1 bg-white/20 px-2 py-0.5 rounded-full">
-                <Trophy className="w-3 h-3" /> {streakInfo.max_racha_historica}
+            <div className="pt-3.5 border-t border-white/20 flex items-center justify-between text-xs font-bold">
+              <span className="opacity-75">Récord Histórico:</span>
+              <span className="flex items-center gap-1.5 bg-white/20 px-3 py-1 rounded-full border border-white/15">
+                <Trophy className="w-3.5 h-3.5 text-yellow-300" /> {streakInfo.max_racha_historica}
               </span>
             </div>
           </div>
         </div>
 
         {/* Next Event Card */}
-        <div className="bg-gradient-to-br from-flux-500 to-flux-600 text-white p-5 rounded-2xl shadow-sm relative overflow-hidden flex flex-col justify-between">
-          <div className="absolute -top-6 -right-6 w-24 h-24 bg-white/10 rounded-full blur-xl"></div>
-          <div className="relative z-10 flex flex-col h-full justify-between">
+        <div className="bg-gradient-to-br from-flux-600 via-flux-600 to-flux-700 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden flex flex-col justify-between border border-white/10 group">
+          <div className="absolute -top-8 -right-8 w-28 h-28 bg-white/10 rounded-full blur-xl group-hover:scale-110 transition-transform duration-500"></div>
+          <div className="relative z-10 flex flex-col h-full justify-between gap-6">
             <div>
-              <p className="text-flux-100 text-[10px] font-semibold uppercase tracking-wider mb-2">Próximo Evento</p>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-[10px] font-extrabold text-flux-100 uppercase tracking-wider bg-white/10 backdrop-blur-sm px-2.5 py-1 rounded-full">Próximo Evento</span>
+                <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center backdrop-blur-sm">
+                  <Clock className="w-4 h-4 text-flux-200" />
+                </div>
+              </div>
               {nextEvent ? (
                 <>
-                  <h3 className="text-lg font-bold mb-1 truncate leading-tight">{nextEvent.summary}</h3>
-                  <div className="flex flex-col gap-1 text-flux-100 text-xs mt-2">
-                    <span className="flex items-center gap-1 font-medium">
-                      <Clock className="w-3.5 h-3.5" />
+                  <h3 className="text-xl font-bold mb-1.5 truncate leading-snug tracking-tight">{nextEvent.summary}</h3>
+                  <div className="flex flex-col gap-1.5 text-flux-100 text-xs mt-3.5">
+                    <span className="flex items-center gap-1.5 font-medium">
+                      <Clock className="w-4 h-4 text-flux-200" />
                       {nextEvent.start.dateTime 
                         ? format(parseISO(nextEvent.start.dateTime), 'HH:mm')
                         : 'Todo el día'
                       }
                     </span>
                     {nextEvent.location && (
-                      <span className="flex items-center gap-1 truncate opacity-90">
-                        <MapPin className="w-3.5 h-3.5" />
+                      <span className="flex items-center gap-1.5 truncate opacity-90">
+                        <MapPin className="w-4 h-4 text-flux-200" />
                         {nextEvent.location}
                       </span>
                     )}
                   </div>
                 </>
               ) : (
-                <p className="text-flux-100 text-xs">No hay eventos próximos. ¡Disfruta tu tiempo libre!</p>
+                <p className="text-flux-100 text-xs mt-2 leading-relaxed">No hay eventos programados próximamente. ¡Disfruta tu tiempo libre!</p>
               )}
             </div>
             {nextEvent && timeUntilNext && (
-              <div className="mt-4 inline-flex items-center gap-1.5 bg-white/20 backdrop-blur-sm px-2.5 py-1 rounded-lg text-xs font-semibold w-fit">
-                <Zap className="w-3.5 h-3.5" /> En {timeUntilNext}
+              <div className="inline-flex items-center gap-1.5 bg-white/20 backdrop-blur-md px-3.5 py-1.5 rounded-xl text-xs font-bold w-fit shadow-sm shadow-black/5 animate-pulse-slow">
+                <Zap className="w-3.5 h-3.5 text-yellow-300" /> En {timeUntilNext}
               </div>
             )}
           </div>
         </div>
 
         {/* Today Progress */}
-        <div className="bg-white dark:bg-surface-950 p-5 rounded-2xl border border-surface-100 dark:border-surface-800 shadow-sm flex flex-col justify-between">
+        <div className="glass-card p-6 rounded-3xl shadow-sm flex flex-col justify-between gap-6 border border-surface-150/10 dark:border-surface-800/20">
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider">Completado Hoy</span>
-              <Trophy className="w-4 h-4 text-flux-500" />
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-extrabold text-surface-400 dark:text-surface-500 uppercase tracking-wider">Completado Hoy</span>
+              <div className="w-8 h-8 rounded-full bg-surface-100 dark:bg-surface-800/40 flex items-center justify-center">
+                <Trophy className="w-4 h-4 text-flux-500 animate-pulse" />
+              </div>
             </div>
-            <div className="flex items-baseline gap-1.5 my-2">
-              <span className="text-3xl font-bold text-surface-900 dark:text-surface-50">
+            <div className="flex items-baseline gap-2 mt-4">
+              <span className="text-4xl font-extrabold text-surface-900 dark:text-white">
                 {todayCompletedCount}
               </span>
-              <span className="text-sm text-surface-400">/ {todayEvents.length}</span>
+              <span className="text-sm font-semibold text-surface-400">/ {todayEvents.length}</span>
             </div>
           </div>
           <div>
-            <div className="w-full bg-surface-100 dark:bg-surface-800 h-1.5 rounded-full overflow-hidden">
+            <div className="w-full bg-surface-100 dark:bg-surface-800 h-2 rounded-full overflow-hidden">
               <div 
-                className="bg-flux-500 h-full rounded-full transition-all duration-500"
+                className="bg-gradient-to-r from-flux-500 to-flux-400 h-full rounded-full transition-all duration-700 ease-out"
                 style={{ width: `${todayEvents.length > 0 ? (todayCompletedCount / todayEvents.length) * 100 : 0}%` }}
               ></div>
             </div>
-            <p className="text-[10px] text-surface-400 mt-2 font-medium">
-              {todayEvents.length > 0 ? `${Math.round((todayCompletedCount / todayEvents.length) * 100)}% de tareas` : 'Sin tareas para hoy'}
+            <p className="text-[10px] text-surface-400 dark:text-surface-500 mt-2.5 font-bold tracking-wide">
+              {todayEvents.length > 0 ? `${Math.round((todayCompletedCount / todayEvents.length) * 100)}% de actividades resueltas` : 'Día relajado sin compromisos'}
             </p>
           </div>
         </div>
 
         {/* Mental Health */}
-        <div className="bg-white dark:bg-surface-950 p-5 rounded-2xl border border-surface-100 dark:border-surface-800 shadow-sm flex flex-col justify-between">
+        <div className="glass-card p-6 rounded-3xl shadow-sm flex flex-col justify-between gap-6 border border-surface-150/10 dark:border-surface-800/20">
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider">Estado Mental</span>
-              <Activity className="w-4 h-4 text-purple-500" />
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-extrabold text-surface-400 dark:text-surface-500 uppercase tracking-wider">Energía Mental</span>
+              <div className="w-8 h-8 rounded-full bg-purple-50 dark:bg-purple-950/20 flex items-center justify-center">
+                <Brain className="w-4 h-4 text-purple-500" />
+              </div>
             </div>
-            <div className="flex items-center gap-3 my-2">
-              <span className="text-3xl">{mentalEmoji(todayMentalScore)}</span>
+            <div className="flex items-center gap-3.5 mt-4">
+              <div className="text-4xl bg-surface-50 dark:bg-surface-900/30 w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner border border-surface-100 dark:border-surface-850">
+                {mentalEmoji(todayMentalScore)}
+              </div>
               <div>
-                <p className="text-base font-bold text-surface-900 dark:text-surface-50">
+                <p className="text-lg font-bold text-surface-900 dark:text-white">
                   {todayMentalScore !== null ? `${todayMentalScore} / 5` : 'Sin Registro'}
                 </p>
-                <p className="text-[9px] text-surface-400 font-medium">
-                  {weeklyLogCount} registros esta semana
+                <p className="text-[10px] text-surface-400 dark:text-surface-500 font-semibold mt-0.5">
+                  {weeklyLogCount} check-ins esta semana
                 </p>
               </div>
             </div>
           </div>
           <Link 
             to="/wellbeing"
-            className="text-[11px] font-semibold text-flux-600 dark:text-flux-400 hover:underline flex items-center gap-0.5 mt-4 w-fit"
+            className="text-[11px] font-bold text-flux-600 dark:text-flux-400 hover:underline flex items-center gap-1 mt-2.5 w-fit hover:translate-x-0.5 transition-transform"
           >
-            Registrar ahora <ArrowRight className="w-3.5 h-3.5" />
+            Registrar sentir <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
       </div>
@@ -500,19 +898,29 @@ export function DashboardView() {
       {/* Two Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Today's Schedule */}
-        <div className="lg:col-span-2 bg-white dark:bg-surface-950 p-6 rounded-2xl border border-surface-100 dark:border-surface-800 shadow-sm">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-lg font-semibold flex items-center gap-2 text-surface-900 dark:text-surface-50">
-              <Calendar className="w-5 h-5 text-flux-500" />
-              Agenda de Hoy
+        <div className="lg:col-span-2 glass-card p-6 rounded-3xl border border-surface-150/10 dark:border-surface-800/20 shadow-sm flex flex-col">
+          <div className="flex items-center justify-between mb-6 pb-4 border-b border-surface-150/10 dark:border-surface-850/10">
+            <h2 className="text-lg font-bold flex items-center gap-2.5 text-surface-900 dark:text-white">
+              <div className="w-1.5 h-6 rounded-full bg-flux-500" />
+              Actividades de Hoy
             </h2>
-            <Link to="/agenda" className="text-sm text-flux-600 dark:text-flux-400 hover:underline flex items-center gap-1">
-              Ver todo <ArrowRight className="w-3.5 h-3.5" />
+            <Link to="/agenda" className="text-sm font-bold text-flux-600 dark:text-flux-400 hover:underline flex items-center gap-1 transition-all">
+              Ver Agenda <ArrowRight className="w-3.5 h-3.5" />
             </Link>
           </div>
 
           {todayEvents.length > 0 ? (
-            <div className="space-y-3">
+            <div className="space-y-3.5">
+              {allEventsCompleted && (
+                <div className="p-6 bg-gradient-to-br from-emerald-500/10 via-green-500/5 to-teal-500/10 rounded-3xl border border-emerald-500/30 text-center relative overflow-hidden shadow-inner group mb-2.5">
+                  <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-full blur-[40px] pointer-events-none animate-pulse-slow"></div>
+                  <span className="text-4xl block mb-2 transition-transform duration-300 group-hover:scale-110">👑</span>
+                  <h4 className="text-base font-black text-emerald-600 dark:text-emerald-400 tracking-tight">¡Meta Diaria Alcanzada!</h4>
+                  <p className="text-xs text-surface-650 dark:text-surface-300 leading-relaxed font-semibold mt-1">
+                    Has completado el 100% de tus actividades de hoy. ¡Una racha asombrosa que te acerca a tus sueños!
+                  </p>
+                </div>
+              )}
               {todayEvents.map((event: any) => {
                 const start = event.start.dateTime;
                 const end = event.end.dateTime;
@@ -522,54 +930,58 @@ export function DashboardView() {
                 return (
                   <div 
                     key={event.id}
-                    className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 p-3.5 rounded-xl border transition-all group ${
-                      isNow 
-                        ? 'border-flux-500/50 bg-flux-50/50 dark:bg-flux-900/20 shadow-sm' 
-                        : 'border-surface-100 dark:border-surface-800 hover:bg-surface-50 dark:hover:bg-surface-900/50'
-                    } ${isCompleted ? 'opacity-60 bg-surface-50/50 grayscale-[0.5]' : ''}`}
+                    className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl border transition-all duration-300 group relative ${
+                      isNow && !isCompleted
+                        ? 'border-flux-500/50 bg-flux-500/5 dark:bg-flux-500/10 shadow-sm ring-1 ring-flux-500/20' 
+                        : 'border-surface-100/55 dark:border-surface-850/30 hover:border-surface-200 dark:hover:border-surface-800/50 bg-white/40 dark:bg-surface-900/15 hover:bg-white/90 dark:hover:bg-surface-900/30'
+                    } ${isCompleted ? 'opacity-55 bg-surface-50/20 dark:bg-surface-900/5 hover:opacity-75' : ''}`}
                   >
-                    {/* Event main section */}
-                    <div className="flex items-center gap-3.5 flex-1 min-w-0 w-full">
-                      <div className={`w-1 self-stretch rounded-full flex-shrink-0 ${isNow ? 'bg-flux-500 animate-pulse' : isCompleted ? 'bg-green-500' : 'bg-surface-200 dark:bg-surface-700'}`}></div>
-                      <div className="flex-shrink-0 text-center min-w-[3.5rem]">
+                    {/* Vertical Status Line */}
+                    <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-2xl ${
+                      isNow && !isCompleted ? 'bg-flux-500 animate-pulse' : isCompleted ? 'bg-green-500' : 'bg-surface-200 dark:bg-surface-800'
+                    }`} />
+
+                    {/* Event Info */}
+                    <div className="flex items-center gap-4 flex-1 min-w-0 w-full pl-2">
+                      <div className="flex-shrink-0 text-center min-w-[3.5rem] bg-surface-50 dark:bg-surface-900/40 p-2 rounded-xl border border-surface-100/40 dark:border-surface-850/20">
                         {start ? (
                           <>
-                            <p className={`text-sm font-bold ${isNow ? 'text-flux-600 dark:text-flux-400' : 'text-surface-900 dark:text-surface-50'}`}>
+                            <p className={`text-sm font-extrabold tracking-tight ${isNow ? 'text-flux-600 dark:text-flux-400 animate-pulse' : 'text-surface-900 dark:text-surface-100'}`}>
                               {format(parseISO(start), 'HH:mm')}
                             </p>
-                            <p className="text-[10px] text-surface-400">{format(parseISO(end), 'HH:mm')}</p>
+                            <p className="text-[10px] text-surface-400 font-semibold mt-0.5">{format(parseISO(end), 'HH:mm')}</p>
                           </>
                         ) : (
-                          <p className="text-xs text-surface-500">Todo el día</p>
+                          <p className="text-[10px] font-bold text-flux-600 dark:text-flux-400 uppercase tracking-wider">Todo el día</p>
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className={`font-semibold truncate ${isNow ? 'text-flux-700 dark:text-flux-300' : 'text-surface-900 dark:text-surface-100'} ${isCompleted ? 'line-through text-surface-400' : ''}`}>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className={`font-bold truncate ${isNow ? 'text-flux-700 dark:text-flux-350' : 'text-surface-900 dark:text-surface-100'} ${isCompleted ? 'line-through text-surface-400 font-medium' : ''}`}>
                             {event.summary}
                           </p>
                           {isNow && !isCompleted && (
-                            <span className="flex-shrink-0 text-[9px] font-extrabold uppercase tracking-wider bg-flux-500 text-white px-1.5 py-0.5 rounded">
-                              Ahora
+                            <span className="flex-shrink-0 text-[8px] font-extrabold uppercase tracking-widest bg-flux-500 text-white px-2 py-0.5 rounded-lg shadow-sm animate-pulse">
+                              En Curso
                             </span>
                           )}
                         </div>
                         {event.location && (
-                          <p className="text-xs text-surface-500 dark:text-surface-400 flex items-center gap-1 mt-0.5 truncate">
-                            <MapPin className="w-3 h-3" /> {event.location}
+                          <p className="text-xs text-surface-500 dark:text-surface-400 flex items-center gap-1.5 mt-1.5 font-medium truncate">
+                            <MapPin className="w-3.5 h-3.5 text-flux-500" /> {event.location}
                           </p>
                         )}
                       </div>
                     </div>
                     
                     {/* Event action buttons */}
-                    <div className="flex items-center gap-2 w-full sm:w-auto justify-end border-t border-surface-100 dark:border-surface-800/40 pt-2 sm:border-0 sm:pt-0 flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 opacity-100 transition-opacity">
+                    <div className="flex items-center gap-2 w-full sm:w-auto justify-end border-t border-surface-100 dark:border-surface-850/30 pt-3 sm:border-0 sm:pt-0 flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 opacity-100 transition-all duration-300">
                       <button 
                         onClick={() => toggleEventComplete(event.id)}
-                        className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-2 px-3 sm:p-2 rounded-xl transition-colors text-xs sm:text-sm font-medium cursor-pointer ${
+                        className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-2 px-3 sm:p-2 rounded-xl transition-all duration-200 text-xs font-bold cursor-pointer ${
                           isCompleted 
-                            ? 'text-green-600 bg-green-50 dark:bg-green-900/30' 
-                            : 'text-surface-600 dark:text-surface-300 bg-surface-50 dark:bg-surface-800 hover:bg-surface-100 dark:hover:bg-surface-700 sm:bg-transparent sm:dark:bg-transparent'
+                            ? 'text-green-600 bg-green-500/10 dark:bg-green-500/20' 
+                            : 'text-surface-600 dark:text-surface-300 bg-surface-100/50 dark:bg-surface-800/40 hover:bg-flux-500 hover:text-white dark:hover:bg-flux-500 sm:bg-transparent sm:dark:bg-transparent'
                         }`}
                         title="Completar"
                       >
@@ -579,7 +991,7 @@ export function DashboardView() {
                       
                       <button 
                         onClick={() => handleEditEvent(event)}
-                        className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-2 px-3 sm:p-2 text-xs sm:text-sm font-medium text-surface-600 dark:text-surface-300 bg-surface-50 dark:bg-surface-800 hover:text-flux-600 hover:bg-flux-50 dark:hover:bg-flux-900/30 rounded-xl transition-colors sm:bg-transparent sm:dark:bg-transparent cursor-pointer"
+                        className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-2 px-3 sm:p-2 text-xs font-bold text-surface-600 dark:text-surface-300 bg-surface-100/50 dark:bg-surface-800/40 hover:text-flux-600 hover:bg-flux-500/10 rounded-xl transition-all duration-200 sm:bg-transparent sm:dark:bg-transparent cursor-pointer"
                         title="Editar"
                       >
                         <Pencil className="w-4 h-4" />
@@ -588,7 +1000,7 @@ export function DashboardView() {
                       
                       <button 
                         onClick={() => handleDeleteEventClick(event.id)}
-                        className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-2 px-3 sm:p-2 text-xs sm:text-sm font-medium text-surface-600 dark:text-surface-300 bg-surface-50 dark:bg-surface-800 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-xl transition-colors sm:bg-transparent sm:dark:bg-transparent cursor-pointer"
+                        className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-2 px-3 sm:p-2 text-xs font-bold text-surface-600 dark:text-surface-300 bg-surface-100/50 dark:bg-surface-800/40 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all duration-200 sm:bg-transparent sm:dark:bg-transparent cursor-pointer"
                         title="Eliminar"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -600,43 +1012,49 @@ export function DashboardView() {
               })}
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center text-center py-10 text-surface-400">
-              <Calendar className="w-10 h-10 mb-3 text-surface-300 dark:text-surface-700" />
-              <p className="font-medium text-surface-500">Día libre de eventos</p>
-              <p className="text-sm mt-1">Tómate un respiro o añade algo a tu agenda.</p>
+            <div className="flex flex-col items-center justify-center text-center py-12 flex-1 border border-dashed border-surface-200 dark:border-surface-800 rounded-2xl bg-surface-50/30 dark:bg-surface-900/5">
+              <Calendar className="w-12 h-12 mb-3.5 text-surface-300 dark:text-surface-700" />
+              <p className="font-bold text-surface-550 dark:text-surface-400">Día libre de actividades</p>
+              <p className="text-xs text-surface-450 mt-1 max-w-xs">Relájate y descansa o aprovecha de añadir nuevos compromisos a tu agenda.</p>
             </div>
           )}
         </div>
 
         {/* Right Column - Quick Actions */}
-        <div className="space-y-5">
+        <div className="space-y-6">
           {/* Quick Actions */}
-          <div className="bg-white dark:bg-surface-950 p-5 rounded-2xl border border-surface-100 dark:border-surface-800 shadow-sm">
-            <h3 className="text-sm font-semibold text-surface-900 dark:text-surface-50 mb-4">Accesos Rápidos</h3>
-            <div className="space-y-2">
+          <div className="glass-card p-6 rounded-3xl border border-surface-150/10 dark:border-surface-800/20 shadow-sm">
+            <h3 className="text-sm font-extrabold text-surface-900 dark:text-white uppercase tracking-wider mb-5">Accesos Rápidos</h3>
+            <div className="space-y-3">
               <Link 
                 to="/agenda"
-                className="flex items-center gap-3 p-3 rounded-xl bg-surface-50 dark:bg-surface-900 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
+                className="flex items-center gap-3.5 p-3.5 rounded-2xl bg-surface-50/50 dark:bg-surface-900/35 hover:bg-flux-500/10 hover:translate-x-1 border border-surface-150/5 dark:border-surface-850/5 hover:border-flux-500/20 transition-all duration-300 group"
               >
-                <Calendar className="w-4 h-4 text-flux-500" />
-                <span className="text-sm font-medium text-surface-700 dark:text-surface-300">Abrir Agenda</span>
-                <ArrowRight className="w-3.5 h-3.5 text-surface-400 ml-auto" />
+                <div className="w-9 h-9 rounded-xl bg-flux-50 dark:bg-flux-900/40 flex items-center justify-center text-flux-600 dark:text-flux-400 group-hover:scale-105 transition-transform">
+                  <Calendar className="w-4 h-4" />
+                </div>
+                <span className="text-sm font-bold text-surface-700 dark:text-surface-300">Mi Agenda Semanal</span>
+                <ArrowRight className="w-4 h-4 text-surface-400 ml-auto group-hover:translate-x-0.5 transition-transform" />
               </Link>
               <Link 
                 to="/wellbeing"
-                className="flex items-center gap-3 p-3 rounded-xl bg-surface-50 dark:bg-surface-900 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
+                className="flex items-center gap-3.5 p-3.5 rounded-2xl bg-surface-50/50 dark:bg-surface-900/35 hover:bg-purple-500/10 hover:translate-x-1 border border-surface-150/5 dark:border-surface-850/5 hover:border-purple-500/20 transition-all duration-300 group"
               >
-                <Brain className="w-4 h-4 text-purple-500" />
-                <span className="text-sm font-medium text-surface-700 dark:text-surface-300">Descarga Mental</span>
-                <ArrowRight className="w-3.5 h-3.5 text-surface-400 ml-auto" />
+                <div className="w-9 h-9 rounded-xl bg-purple-50 dark:bg-purple-950/40 flex items-center justify-center text-purple-600 dark:text-purple-400 group-hover:scale-105 transition-transform">
+                  <Brain className="w-4 h-4" />
+                </div>
+                <span className="text-sm font-bold text-surface-700 dark:text-surface-300">Descarga Mental & IA</span>
+                <ArrowRight className="w-4 h-4 text-surface-400 ml-auto group-hover:translate-x-0.5 transition-transform" />
               </Link>
               <Link 
                 to="/report"
-                className="flex items-center gap-3 p-3 rounded-xl bg-surface-50 dark:bg-surface-900 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
+                className="flex items-center gap-3.5 p-3.5 rounded-2xl bg-surface-50/50 dark:bg-surface-900/35 hover:bg-green-500/10 hover:translate-x-1 border border-surface-150/5 dark:border-surface-850/5 hover:border-green-500/20 transition-all duration-300 group"
               >
-                <TrendingUp className="w-4 h-4 text-green-500" />
-                <span className="text-sm font-medium text-surface-700 dark:text-surface-300">Reporte Semanal</span>
-                <ArrowRight className="w-3.5 h-3.5 text-surface-400 ml-auto" />
+                <div className="w-9 h-9 rounded-xl bg-green-50 dark:bg-green-950/40 flex items-center justify-center text-green-600 dark:text-green-400 group-hover:scale-105 transition-transform">
+                  <TrendingUp className="w-4 h-4" />
+                </div>
+                <span className="text-sm font-bold text-surface-700 dark:text-surface-300">Reporte Semanal</span>
+                <ArrowRight className="w-4 h-4 text-surface-400 ml-auto group-hover:translate-x-0.5 transition-transform" />
               </Link>
             </div>
           </div>
@@ -665,17 +1083,17 @@ export function DashboardView() {
         title="🤖 Sugerencia de la IA"
         isAiSuggestion={true}
         message={
-          <div className="space-y-2">
+          <div className="space-y-3.5">
             <p>
               ¿Deseas postergar <strong>"{rescheduleDialog.summary}"</strong> a las <strong>{rescheduleDialog.suggestedTime}</strong>?
             </p>
-            <div className="p-3 bg-purple-50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/30 rounded-xl text-xs sm:text-sm text-purple-700 dark:text-purple-300 italic">
+            <div className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-2xl text-xs sm:text-sm text-purple-700 dark:text-purple-350 italic shadow-inner">
               💡 Razón: {rescheduleDialog.reason}
             </div>
-            <p className="text-xs text-surface-400 mt-2 leading-relaxed">
-              👉 Presiona <strong>"Aceptar"</strong> para postergar el evento en esa hora.
+            <p className="text-xs text-surface-450 leading-relaxed">
+              👉 Presiona <strong>"Aceptar"</strong> para postergar el evento en esa hora sugerida.
               <br />
-              👉 Presiona <strong>"Eliminar"</strong> para quitarlo de forma definitiva.
+              👉 Presiona <strong>"Eliminar"</strong> para descartar el evento de forma definitiva.
             </p>
           </div>
         }
@@ -686,6 +1104,47 @@ export function DashboardView() {
         onCancel={handleDeclineReschedule}
         onClose={() => setRescheduleDialog(prev => ({ ...prev, isOpen: false }))}
       />
+
+      {/* Celebration overlay */}
+      {showCelebration && (
+        <>
+          {/* High-Performance Confetti Canvas */}
+          <canvas 
+            ref={canvasRef} 
+            className="fixed inset-0 pointer-events-none z-45 w-full h-full"
+          />
+
+          <div className="fixed inset-0 pointer-events-none z-50 overflow-hidden flex items-center justify-center p-4 bg-black/35 backdrop-blur-sm animate-in fade-in duration-300">
+            {/* Neon success glass panel */}
+            <div className="glass-card p-6 md:p-8 rounded-3xl border border-green-500/30 bg-slate-900/90 dark:bg-black/90 backdrop-blur-2xl shadow-[0_0_50px_rgba(16,185,129,0.3)] text-center animate-in zoom-in-95 duration-300 max-w-xs sm:max-w-sm pointer-events-auto">
+              <span className="text-5xl block mb-3 animate-bounce">👑</span>
+              <h3 className="text-xl font-black text-white tracking-tight">¡Día Completado!</h3>
+              <p className="text-xs text-green-400 font-extrabold uppercase tracking-widest mt-1">¡Constancia Legendaria! 🔥</p>
+              <p className="text-xs text-slate-350 leading-relaxed font-semibold mt-3">
+                Has superado el 100% de tus actividades de hoy. Tu constancia te acerca cada día más a tus metas.
+              </p>
+              <div className="flex gap-2.5 mt-5">
+                <button 
+                  onClick={() => {
+                    if ((window as any).reFireConfetti) {
+                      (window as any).reFireConfetti();
+                    }
+                  }} 
+                  className="flex-1 px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition-all border border-white/15 cursor-pointer active:scale-95"
+                >
+                  ¡Lanzar más! 🎉
+                </button>
+                <button 
+                  onClick={() => setShowCelebration(false)} 
+                  className="flex-1 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-xl text-xs font-bold shadow-md shadow-green-500/20 transition-all cursor-pointer active:scale-95"
+                >
+                  ¡Genial!
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
