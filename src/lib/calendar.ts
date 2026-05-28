@@ -3,12 +3,26 @@ import { startOfDay, endOfDay, addDays } from 'date-fns';
 import { logger } from './logger';
 import { GoogleEventSchema } from './validation';
 
+// Fallbacks para las variables de entorno de Google OAuth para asegurar la compilación
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+const GOOGLE_REDIRECT_URI = import.meta.env.VITE_GOOGLE_REDIRECT_URI || window.location.origin;
+
+// Estructura exigida para la configuración de OAuth directa
+export const authUrl = "https://accounts.google.com/o/oauth2/v2/auth?" + new URLSearchParams({
+  client_id: GOOGLE_CLIENT_ID,
+  redirect_uri: GOOGLE_REDIRECT_URI,
+  response_type: "code",
+  access_type: "offline", // Crítico para persistencia en segundo plano
+  prompt: "consent",      // Crítico para forzar entrega del refresh_token
+  scope: "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly"
+}).toString();
+
 /**
  * Attempt to refresh the Google OAuth access token using our secure Edge Function.
  * Returns the new token or null if the refresh failed.
  */
 async function refreshGoogleToken(): Promise<string | null> {
-  logger.info('Calendar', 'Refreshing Google OAuth token via Edge Function...');
+  logger.info('Calendar', 'Refreshing Google OAuth token via google-calendar-sync Edge Function...');
   try {
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
     if (sessionError || !sessionData.session) {
@@ -18,7 +32,7 @@ async function refreshGoogleToken(): Promise<string | null> {
 
     const sessionToken = sessionData.session.access_token;
 
-    const { data, error } = await supabase.functions.invoke('refresh-google-token', {
+    const { data, error } = await supabase.functions.invoke('google-calendar-sync', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${sessionToken}`,
@@ -26,17 +40,17 @@ async function refreshGoogleToken(): Promise<string | null> {
     });
 
     if (error) {
-      logger.error('Calendar', 'Failed to invoke refresh-google-token Edge Function', error);
+      logger.error('Calendar', 'Failed to invoke google-calendar-sync Edge Function', error);
       return null;
     }
 
     const newToken = data?.access_token;
     if (newToken) {
       localStorage.setItem('google_provider_token', newToken);
-      logger.info('Calendar', 'Google OAuth token refreshed successfully via Edge Function');
+      logger.info('Calendar', 'Google OAuth token refreshed successfully via google-calendar-sync Edge Function');
       return newToken;
     } else {
-      logger.warn('Calendar', 'Edge Function returned no access token');
+      logger.warn('Calendar', 'google-calendar-sync Edge Function returned no access token');
       return null;
     }
   } catch (err) {
@@ -46,35 +60,52 @@ async function refreshGoogleToken(): Promise<string | null> {
 }
 
 /**
- * Saves the Google refresh token securely to the user_tokens table.
+ * Saves Google credentials securely to the profiles table.
  */
-export async function saveGoogleRefreshToken(refreshToken: string) {
-  logger.info('Calendar', 'Saving Google refresh token to DB...');
+export async function saveGoogleCredentials(refreshToken: string | null, accessToken: string | null) {
+  logger.info('Calendar', 'Saving Google credentials to Supabase profiles table...');
   try {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-      logger.error('Calendar', 'Cannot save refresh token: no authenticated user');
+      logger.error('Calendar', 'Cannot save credentials: no authenticated user');
       return;
     }
 
+    const payload: any = {
+      id: user.id,
+      updated_at: new Date().toISOString()
+    };
+
+    if (refreshToken) {
+      payload.google_refresh_token = refreshToken;
+    }
+    if (accessToken) {
+      payload.google_access_token = accessToken;
+      // Los tokens de acceso de Google duran 3600 segundos
+      payload.google_token_expires_at = new Date(Date.now() + 3600 * 1000).toISOString();
+    }
+
     const { error } = await supabase
-      .from('user_tokens')
-      .upsert({
-        user_id: user.id,
-        refresh_token: refreshToken,
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: 'user_id'
+      .from('profiles')
+      .upsert(payload, {
+        onConflict: 'id'
       });
 
     if (error) {
-      logger.error('Calendar', 'Error saving Google refresh token to Supabase user_tokens table:', error);
+      logger.error('Calendar', 'Error saving Google credentials to Supabase profiles table:', error);
     } else {
-      logger.info('Calendar', 'Google refresh token saved to database successfully');
+      logger.info('Calendar', 'Google credentials saved to profiles successfully');
     }
   } catch (err) {
-    logger.error('Calendar', 'Unexpected error saving Google refresh token', err);
+    logger.error('Calendar', 'Unexpected error saving Google credentials', err);
   }
+}
+
+/**
+ * Saves the Google refresh token securely to the profiles table (Backward compatibility).
+ */
+export async function saveGoogleRefreshToken(refreshToken: string) {
+  await saveGoogleCredentials(refreshToken, null);
 }
 
 export async function fetchWeekEvents() {

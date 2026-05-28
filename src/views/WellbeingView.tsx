@@ -193,10 +193,10 @@ export function WellbeingView() {
   }
 
   const moods = [
-    { score: 1, emoji: '😞', label: 'Agotado', style: 'border-red-500/20 hover:border-red-500/40 focus:ring-red-500/30 text-red-650 bg-red-500/5 hover:bg-red-500/10' },
-    { score: 2, emoji: '😐', label: 'Normal', style: 'border-slate-500/20 hover:border-slate-500/40 focus:ring-slate-500/30 text-slate-650 bg-slate-500/5 hover:bg-slate-500/10' },
-    { score: 4, emoji: '😌', label: 'En Paz', style: 'border-purple-500/20 hover:border-purple-500/40 focus:ring-purple-500/30 text-purple-650 bg-purple-500/5 hover:bg-purple-500/10' },
-    { score: 5, emoji: '⚡', label: 'Enérgico', style: 'border-yellow-500/20 hover:border-yellow-500/40 focus:ring-yellow-500/30 text-yellow-650 bg-yellow-500/5 hover:bg-yellow-500/10' }
+    { score: 1, emoji: '😞', label: 'Agotado', activeClass: 'border-red-500 bg-red-500/15 text-red-650 dark:text-red-400 ring-4 ring-red-500/20 shadow-md shadow-red-500/10 scale-[1.03]', normalClass: 'border-red-500/15 hover:border-red-500/30 text-red-600 dark:text-red-400/80 bg-red-500/5 hover:bg-red-500/10 hover:shadow-sm' },
+    { score: 2, emoji: '😐', label: 'Normal', activeClass: 'border-zinc-500 bg-zinc-550/15 text-zinc-700 dark:text-zinc-300 ring-4 ring-zinc-500/20 shadow-md scale-[1.03]', normalClass: 'border-zinc-500/15 hover:border-zinc-500/30 text-zinc-600 dark:text-zinc-400 bg-zinc-500/5 hover:bg-zinc-550/10' },
+    { score: 4, emoji: '😌', label: 'En Paz', activeClass: 'border-purple-500 bg-purple-550/15 text-purple-700 dark:text-purple-300 ring-4 ring-purple-500/20 shadow-md shadow-purple-500/10 scale-[1.03]', normalClass: 'border-purple-500/15 hover:border-purple-500/30 text-purple-650 dark:text-purple-400 bg-purple-500/5 hover:bg-purple-550/10 hover:shadow-sm' },
+    { score: 5, emoji: '⚡', label: 'Enérgico', activeClass: 'border-amber-500 bg-amber-550/15 text-amber-700 dark:text-amber-300 ring-4 ring-amber-500/20 shadow-md shadow-amber-500/10 scale-[1.03]', normalClass: 'border-amber-500/15 hover:border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-500/5 hover:bg-amber-550/10 hover:shadow-sm' }
   ];
 
   return (
@@ -207,7 +207,7 @@ export function WellbeingView() {
           <Brain className="w-8 h-8 text-purple-500" />
           Paz Mental y Bienestar
         </h1>
-        <p className="text-xs font-semibold text-surface-450 mt-1">
+        <p className="text-xs font-semibold text-surface-450 mt-1 uppercase tracking-wider">
           Libera tensiones, vierte tu flujo de pensamiento y desbloquea el análisis de reencuadre cognitivo asistido por IA.
         </p>
       </div>
@@ -216,18 +216,21 @@ export function WellbeingView() {
         {/* Left Column: Introspection Form */}
         <div className="lg:col-span-3 space-y-6">
           <div className="glass-card p-6 md:p-8 rounded-3xl border border-surface-150/10 dark:border-surface-800/20 shadow-sm relative overflow-hidden">
+            {/* Ambient background glow inside the card */}
+            <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 dark:bg-purple-500/5 rounded-full blur-[60px] pointer-events-none" />
+            
             <h2 className="text-lg font-bold mb-6 flex items-center gap-2.5 text-surface-900 dark:text-white">
-              <span className="text-2xl">🧠</span> Descarga Emocional
+              <span className="text-2xl animate-float">🧠</span> Descarga Emocional
             </h2>
             
             <form onSubmit={handleSave} className="space-y-8">
               
               {/* Mood Selector */}
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider mb-3.5 text-surface-500 dark:text-surface-400">
+                <label className="block text-xs font-bold uppercase tracking-wider mb-4 text-surface-450 dark:text-surface-400">
                   ¿Cómo se siente tu nivel de energía y mente en este instante?
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   {moods.map((mood) => {
                     const isSelected = mentalScore === mood.score;
                     return (
@@ -235,10 +238,8 @@ export function WellbeingView() {
                         key={mood.score}
                         type="button"
                         onClick={() => setMentalScore(mood.score)}
-                        className={`flex flex-col items-center justify-center py-4.5 px-3 rounded-2xl border transition-all duration-300 cursor-pointer ${
-                          isSelected 
-                            ? 'border-purple-500 bg-purple-500/10 dark:bg-purple-500/15 shadow-md shadow-purple-500/10 ring-2 ring-purple-500/35 scale-[1.03]' 
-                            : mood.style
+                        className={`flex flex-col items-center justify-center py-4 px-3.5 rounded-2xl border transition-all duration-300 cursor-pointer ${
+                          isSelected ? mood.activeClass : mood.normalClass
                         }`}
                       >
                         <span className="text-4xl mb-2.5 drop-shadow-sm transition-transform duration-300 hover:scale-110">{mood.emoji}</span>
@@ -253,7 +254,7 @@ export function WellbeingView() {
 
               {/* Journaling Textarea */}
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider mb-3 text-surface-500 dark:text-surface-400">
+                <label className="block text-xs font-bold uppercase tracking-wider mb-3 text-surface-450 dark:text-surface-400">
                   Reflexión y Escritura Libre (Diario de introspección)
                 </label>
                 <textarea 
@@ -261,7 +262,7 @@ export function WellbeingView() {
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Vierte tu flujo de pensamiento aquí sin filtros ni límites. ¿Qué te ha estresado hoy? ¿Qué agradeces? Este es tu espacio seguro, privado y cifrado..."
-                  className="w-full glass-input rounded-2xl px-4.5 py-4 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none shadow-inner text-surface-900 dark:text-surface-100 placeholder:text-surface-400 dark:placeholder:text-surface-550 text-sm leading-relaxed"
+                  className="w-full glass-input rounded-2xl px-4.5 py-4 focus:outline-none focus:ring-2 focus:ring-purple-500/40 resize-none shadow-inner text-surface-900 dark:text-surface-100 placeholder:text-surface-400 dark:placeholder:text-surface-550 text-sm leading-relaxed"
                 />
               </div>
 
@@ -273,9 +274,9 @@ export function WellbeingView() {
                     {todayLogs.map((log: string, i: number) => (
                       <div 
                         key={i} 
-                        className="p-4 bg-purple-500/5 dark:bg-purple-500/10 rounded-2xl border border-purple-500/10 text-sm text-purple-900 dark:text-purple-300 italic shadow-sm relative pl-4"
+                        className="p-4 bg-purple-500/5 dark:bg-purple-500/10 rounded-2xl border border-purple-500/10 text-sm text-purple-900 dark:text-purple-300 italic shadow-sm relative pl-4.5"
                       >
-                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-purple-500 rounded-l-2xl" />
+                        <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-b from-purple-500 to-indigo-500 rounded-l-2xl" />
                         "{log}"
                       </div>
                     ))}
@@ -314,7 +315,7 @@ export function WellbeingView() {
         <div className="lg:col-span-2 space-y-6">
           
           {/* Introspection Streak Widget */}
-          <div className="bg-gradient-to-br from-purple-600 via-indigo-600 to-indigo-750 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden flex flex-col justify-between group border border-white/10">
+          <div className="bg-gradient-to-br from-purple-600 via-indigo-600 to-pink-500 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden flex flex-col justify-between group border border-white/10">
             {/* Decorative background aura */}
             <div className="absolute -top-12 -right-12 w-32 h-32 bg-white/10 rounded-full blur-2xl group-hover:scale-110 transition-transform duration-500"></div>
             <div className="absolute -bottom-8 -left-8 w-24 h-24 bg-white/5 rounded-full blur-md"></div>
@@ -351,24 +352,24 @@ export function WellbeingView() {
           </div>
 
           {/* Tu Evolución Semanal Module */}
-          <div className="bg-purple-950/15 backdrop-blur-xl border border-purple-500/15 p-6 rounded-3xl relative overflow-hidden flex flex-col justify-between shadow-inner">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-purple-500 rounded-full blur-[60px] opacity-15"></div>
+          <div className="glass-card border border-purple-500/15 p-6 rounded-3xl relative overflow-hidden flex flex-col justify-between shadow-inner">
+            <div className="absolute top-0 right-0 w-28 h-28 bg-purple-500/10 rounded-full blur-[60px] pointer-events-none"></div>
             
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-xs font-extrabold text-purple-300 uppercase tracking-widest flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-purple-400" />
+                <h3 className="text-xs font-extrabold text-purple-650 dark:text-purple-300 uppercase tracking-widest flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-purple-500" />
                   Evolución Semanal (IA)
                 </h3>
               </div>
               
               {loadingEvolution ? (
-                <div className="flex items-center gap-2.5 py-4 text-purple-300/70 text-xs font-bold justify-center">
+                <div className="flex items-center gap-2.5 py-6 text-purple-600/70 dark:text-purple-350/70 text-xs font-bold justify-center">
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-400"></div>
                   Analizando tu sentir y temas recurrentes...
                 </div>
               ) : (
-                <p className="text-xs font-bold text-purple-900 dark:text-purple-100 leading-relaxed italic bg-purple-500/5 border border-purple-500/10 p-4 rounded-2xl shadow-inner text-left">
+                <p className="text-xs font-bold text-surface-900 dark:text-purple-100 leading-relaxed italic bg-purple-500/5 dark:bg-purple-500/10 border border-purple-500/10 dark:border-purple-500/15 p-4 rounded-2xl shadow-inner text-left">
                   "{evolutionText}"
                 </p>
               )}
@@ -383,62 +384,62 @@ export function WellbeingView() {
           <div className="relative overflow-hidden rounded-3xl border border-surface-150/10 dark:border-surface-800/20">
             {isReflectionCompletedToday ? (
               // UNLOCKED STATE
-              <div className="bg-gradient-to-br from-indigo-900/35 via-purple-900/35 to-pink-900/35 backdrop-blur-xl p-6 rounded-3xl shadow-lg transition-all duration-500 animate-in fade-in zoom-in-95">
-                <div className="flex items-center justify-between mb-5 border-b border-white/10 pb-3">
-                  <div className="flex items-center gap-2 text-purple-300 font-bold uppercase tracking-wider text-xs">
-                    <Sparkles className="w-4 h-4 text-yellow-300 animate-pulse" />
+              <div className="bg-gradient-to-br from-indigo-900/15 via-purple-900/15 to-pink-900/15 backdrop-blur-xl p-6 rounded-3xl shadow-lg border border-purple-500/15 transition-all duration-500 animate-in fade-in zoom-in-95">
+                <div className="flex items-center justify-between mb-5 border-b border-white/10 dark:border-surface-800/15 pb-3">
+                  <div className="flex items-center gap-2 text-purple-600 dark:text-purple-300 font-bold uppercase tracking-wider text-xs">
+                    <Sparkles className="w-4 h-4 text-yellow-500 dark:text-yellow-300 animate-pulse" />
                     Reencuadre Cognitivo
                   </div>
-                  <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400">
-                    <Unlock className="w-4 h-4" />
+                  <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-500 dark:text-emerald-400 border border-emerald-500/10">
+                    <Unlock className="w-4 h-4 animate-float" />
                   </div>
                 </div>
                 
                 {loadingReframing ? (
-                  <div className="flex items-center gap-2.5 py-10 text-purple-300/80 text-xs font-bold justify-center">
-                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-purple-400"></div>
+                  <div className="flex items-center gap-2.5 py-10 text-purple-650/80 dark:text-purple-300/80 text-xs font-bold justify-center">
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-purple-500"></div>
                     Desafiando distorsiones mentales...
                   </div>
                 ) : reframingData ? (
                   <div className="space-y-4.5">
                     {/* Distortion Block */}
                     {reframingData.distortion_detected && reframingData.distortion_detected !== 'Ninguna' && reframingData.distortion_detected !== 'Ninguna detectada' ? (
-                      <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl animate-in slide-in-from-top-2">
-                        <div className="flex items-center gap-2 text-xs font-extrabold text-red-400">
+                      <div className="p-4 bg-red-500/10 border border-red-500/20 dark:border-red-500/15 rounded-2xl animate-in slide-in-from-top-2">
+                        <div className="flex items-center gap-2 text-xs font-extrabold text-red-650 dark:text-red-400">
                           <span className="flex h-2 w-2 rounded-full bg-red-400 animate-ping"></span>
                           <span className="flex h-2 w-2 rounded-full bg-red-500 absolute"></span>
                           Distorsión Detectada: {reframingData.distortion_detected}
                         </div>
-                        <p className="text-xs text-purple-200 mt-2 leading-relaxed">
+                        <p className="text-xs text-surface-800 dark:text-purple-200 mt-2 leading-relaxed">
                           {reframingData.explanation}
                         </p>
                       </div>
                     ) : (
-                      <div className="p-4 bg-green-500/10 border border-green-500/20 rounded-2xl">
-                        <div className="text-xs font-extrabold text-green-400 flex items-center gap-2">
+                      <div className="p-4 bg-green-500/10 border border-green-500/20 dark:border-green-500/15 rounded-2xl">
+                        <div className="text-xs font-extrabold text-green-650 dark:text-green-400 flex items-center gap-2">
                           <span className="flex h-2.5 w-2.5 rounded-full bg-green-400"></span>
                           Enfoque Mental Equilibrado
                         </div>
-                        <p className="text-xs text-purple-200 mt-2 leading-relaxed font-semibold">
+                        <p className="text-xs text-surface-800 dark:text-purple-200 mt-2 leading-relaxed font-semibold">
                           {reframingData.explanation || '¡Excelente! Tus reflexiones de hoy expresan una perspectiva muy saludable y balanceada.'}
                         </p>
                       </div>
                     )}
 
                     {/* Reframing Block */}
-                    <div className="p-4.5 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl shadow-inner">
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
+                    <div className="p-4.5 bg-emerald-500/10 border border-emerald-500/25 dark:border-emerald-500/15 rounded-2xl shadow-inner">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-650 dark:text-emerald-400">
                         <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
                         Perspectiva Saludable Recomendada
                       </div>
-                      <p className="text-sm font-black text-purple-50 mt-2 leading-relaxed font-display italic">
+                      <p className="text-sm font-black text-surface-900 dark:text-purple-50 mt-2 leading-relaxed font-display italic">
                         "{reframingData.reframing}"
                       </p>
                     </div>
 
                     {/* 3 Action Steps */}
                     <div className="space-y-3 pt-2">
-                      <p className="text-[10px] font-extrabold text-purple-300 uppercase tracking-widest">
+                      <p className="text-[10px] font-extrabold text-purple-650 dark:text-purple-300 uppercase tracking-widest">
                         📋 Micro-Hábitos para tomar el control (menos de 10 min)
                       </p>
                       <div className="space-y-2">
@@ -451,12 +452,12 @@ export function WellbeingView() {
                               onClick={() => setCompletedActions(prev => ({ ...prev, [idx]: !prev[idx] }))}
                               className={`w-full text-left p-3.5 rounded-2xl border text-xs font-bold flex items-center gap-3 transition-all duration-300 cursor-pointer ${
                                 isDone 
-                                  ? 'bg-purple-950/40 border-purple-500/20 text-purple-300/40 line-through scale-[0.98]' 
-                                  : 'bg-white/5 border-white/10 hover:bg-white/10 text-purple-100 hover:border-purple-500/35 hover:-translate-y-0.5'
+                                  ? 'bg-purple-950/20 border-purple-500/10 dark:border-purple-500/5 text-purple-650/40 dark:text-purple-300/40 line-through scale-[0.98]' 
+                                  : 'bg-white/40 dark:bg-white/5 border-surface-200 dark:border-white/10 hover:bg-white/60 dark:hover:bg-white/10 text-surface-800 dark:text-purple-100 hover:border-purple-500/35 hover:-translate-y-0.5 shadow-sm'
                               }`}
                             >
                               <span className={`w-5 h-5 rounded-lg border flex items-center justify-center flex-shrink-0 transition-all ${
-                                isDone ? 'bg-emerald-500 border-emerald-500 text-white shadow-md' : 'border-white/20'
+                                isDone ? 'bg-emerald-500 border-emerald-500 text-white shadow-md' : 'border-surface-300 dark:border-white/20'
                               }`}>
                                 {isDone && <svg viewBox="0 0 14 14" fill="none" className="w-3 h-3 stroke-[3px]"><path d="M3 7.5L5.5 10L11 4" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                               </span>
@@ -471,10 +472,10 @@ export function WellbeingView() {
               </div>
             ) : (
               // LOCKED STATE
-              <div className="bg-surface-100/30 dark:bg-surface-900/10 border border-surface-200/40 dark:border-surface-800/40 p-6 rounded-3xl relative overflow-hidden flex flex-col justify-between group min-h-[300px]">
+              <div className="bg-surface-50/50 dark:bg-surface-900/10 border border-surface-200/40 dark:border-surface-800/40 p-6 rounded-3xl relative overflow-hidden flex flex-col justify-between group min-h-[300px]">
                 {/* Blur Cover Overlay */}
-                <div className="absolute inset-0 bg-surface-50/20 dark:bg-surface-950/30 backdrop-blur-[12px] filter z-10 flex flex-col items-center justify-center p-6 text-center transition-all duration-300">
-                  <div className="w-12 h-12 bg-purple-500/15 dark:bg-purple-500/20 border border-purple-500/30 text-purple-650 dark:text-purple-400 rounded-full flex items-center justify-center mb-4.5 shadow-md shadow-purple-500/10 animate-bounce">
+                <div className="absolute inset-0 bg-white/45 dark:bg-surface-950/30 backdrop-blur-[12px] filter z-10 flex flex-col items-center justify-center p-6 text-center transition-all duration-300">
+                  <div className="w-12 h-12 bg-purple-500/10 dark:bg-purple-500/20 border border-purple-500/35 text-purple-650 dark:text-purple-400 rounded-full flex items-center justify-center mb-4.5 shadow-md shadow-purple-500/10 animate-bounce">
                     <Lock className="w-5 h-5" />
                   </div>
                   <h4 className="text-[15px] font-extrabold text-surface-900 dark:text-white tracking-tight">Análisis Bloqueado</h4>

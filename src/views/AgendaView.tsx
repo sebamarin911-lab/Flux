@@ -245,20 +245,20 @@ export function AgendaView() {
     const isCompleted = eventStatus[event.id] || false;
 
     return (
-      <div className={`p-4 bg-white/40 dark:bg-surface-950/40 rounded-2xl border transition-all duration-300 group relative flex flex-col ${
-        isCompleted ? 'border-green-500/20 bg-green-500/5 opacity-70' : 'border-surface-150/10 dark:border-surface-800/20'
-      } shadow-sm hover:shadow-md`}>
-        <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-2xl ${isCompleted ? 'bg-green-500' : 'bg-flux-500'}`}></div>
+      <div className={`p-4 bg-white/35 dark:bg-surface-950/35 backdrop-blur-md rounded-2xl border transition-all duration-300 group relative flex flex-col ${
+        isCompleted ? 'border-green-500/20 bg-green-500/5 opacity-70 shadow-none' : 'border-surface-150/10 dark:border-surface-850/15 shadow-sm hover:shadow-md'
+      }`}>
+        <div className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-2xl ${isCompleted ? 'bg-emerald-500' : 'bg-flux-500'}`}></div>
         <div className="flex items-start gap-3.5 pl-1.5">
           <button 
             onClick={() => toggleEventStatus(event.id)}
-            className={`flex-shrink-0 mt-0.5 w-5.5 h-5.5 rounded-xl border flex items-center justify-center transition-all duration-200 cursor-pointer ${
+            className={`flex-shrink-0 mt-0.5 w-6 h-6 rounded-xl border flex items-center justify-center transition-all duration-200 cursor-pointer ${
               isCompleted 
-                ? 'bg-green-500 border-green-500 text-white shadow-md shadow-green-550/15' 
+                ? 'bg-emerald-500 border-emerald-500 text-white shadow-md shadow-emerald-500/20' 
                 : 'border-surface-300 dark:border-surface-700 hover:border-flux-400 dark:hover:border-flux-400 bg-surface-50 dark:bg-surface-900/50'
             }`}
           >
-            {isCompleted && <svg viewBox="0 0 14 14" fill="none" className="w-3.5 h-3.5 stroke-[2.5px]"><path d="M3 7.5L5.5 10L11 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+            {isCompleted && <svg viewBox="0 0 14 14" fill="none" className="w-3.5 h-3.5 stroke-[3px]"><path d="M3 7.5L5.5 10L11 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
           </button>
           <div className="flex-1 min-w-0">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 mb-1.5">
@@ -290,8 +290,8 @@ export function AgendaView() {
             onClick={() => toggleEventStatus(event.id)}
             className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-2 px-3.5 sm:py-1.5 sm:px-3 rounded-xl transition-all duration-200 text-xs font-bold cursor-pointer ${
               isCompleted 
-                ? 'text-green-600 bg-green-500/10 dark:bg-green-500/20' 
-                : 'text-surface-600 dark:text-surface-300 bg-surface-100/50 dark:bg-surface-800/40 hover:bg-flux-500 hover:text-white sm:bg-transparent sm:dark:bg-transparent'
+                ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 dark:bg-emerald-500/20' 
+                : 'text-surface-650 dark:text-surface-300 bg-surface-100/50 dark:bg-surface-800/40 hover:bg-flux-500 hover:text-white sm:bg-transparent sm:dark:bg-transparent'
             }`}
             title="Completar"
           >
@@ -301,7 +301,7 @@ export function AgendaView() {
           
           <button 
             onClick={() => handleEditEvent(event)}
-            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-2 px-3.5 sm:py-1.5 sm:px-3 text-xs font-bold text-surface-600 dark:text-surface-300 bg-surface-100/50 dark:bg-surface-800/40 hover:text-flux-600 hover:bg-flux-500/10 rounded-xl transition-all duration-200 sm:bg-transparent sm:dark:bg-transparent cursor-pointer"
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-2 px-3.5 sm:py-1.5 sm:px-3 text-xs font-bold text-surface-650 dark:text-surface-300 bg-surface-100/50 dark:bg-surface-800/40 hover:text-flux-600 hover:bg-flux-500/10 rounded-xl transition-all duration-200 sm:bg-transparent sm:dark:bg-transparent cursor-pointer"
             title="Editar"
           >
             <Pencil className="w-4 h-4" />
@@ -310,7 +310,7 @@ export function AgendaView() {
           
           <button 
             onClick={() => handleDeleteEventClick(event.id)}
-            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-2 px-3.5 sm:py-1.5 sm:px-3 text-xs font-bold text-surface-600 dark:text-surface-300 bg-surface-100/50 dark:bg-surface-800/40 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all duration-200 sm:bg-transparent sm:dark:bg-transparent cursor-pointer"
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-2 px-3.5 sm:py-1.5 sm:px-3 text-xs font-bold text-surface-650 dark:text-surface-300 bg-surface-100/50 dark:bg-surface-800/40 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all duration-200 sm:bg-transparent sm:dark:bg-transparent cursor-pointer"
             title="Eliminar"
           >
             <Trash2 className="w-4 h-4" />
@@ -387,7 +387,7 @@ export function AgendaView() {
                     isCurrentDay ? 'is-today' : ''
                   } ${
                     isSelected 
-                      ? 'bg-gradient-to-b from-flux-500/15 to-flux-500/5 text-flux-600 dark:text-flux-400 border-flux-500 shadow-md shadow-flux-500/5 scale-105' 
+                      ? 'bg-gradient-to-b from-flux-500/20 to-flux-500/5 text-flux-600 dark:text-flux-400 border-flux-500 ring-2 ring-flux-500/20 shadow-md shadow-flux-500/5 scale-105' 
                       : isCurrentDay
                         ? 'bg-surface-100/50 dark:bg-surface-900/40 border-surface-300 dark:border-surface-700 hover:border-flux-400'
                         : 'bg-surface-50/20 dark:bg-surface-900/10 border-transparent hover:bg-surface-50 dark:hover:bg-surface-900/35 hover:border-surface-250 dark:hover:border-surface-800'
@@ -399,7 +399,7 @@ export function AgendaView() {
                   {/* Event Dots */}
                   <div className="flex gap-1.5 w-full mt-auto h-2 justify-center items-center">
                      {dayEvents.slice(0, 3).map((e: any, i: number) => (
-                        <div key={i} className={`h-1.5 w-1.5 rounded-full ${eventStatus[e.id] ? 'bg-green-500 shadow-sm shadow-green-500/20' : 'bg-flux-500 shadow-sm shadow-flux-500/20'}`} title={e.summary}></div>
+                        <div key={i} className={`h-1.5 w-1.5 rounded-full ${eventStatus[e.id] ? 'bg-emerald-500 shadow-sm shadow-emerald-500/20' : 'bg-flux-500 shadow-sm shadow-flux-500/20'}`} title={e.summary}></div>
                      ))}
                      {dayEvents.length > 3 && (
                        <div className="text-[8px] text-center text-surface-400 font-bold">+{dayEvents.length - 3}</div>
@@ -480,11 +480,11 @@ export function AgendaView() {
             <div className="glass-card p-6 rounded-3xl border border-surface-150/10 dark:border-surface-800/20 shadow-sm animate-in fade-in duration-300">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 pb-4 border-b border-surface-150/10 dark:border-surface-850/10">
                 <h2 className="text-xl font-extrabold capitalize text-surface-900 dark:text-white tracking-tight flex items-center gap-2">
-                  <div className="w-1 h-5 rounded-full bg-flux-500" />
+                  <div className="w-1.5 h-5 rounded-full bg-flux-500" />
                   {isToday(parseISO(expandedDay)) ? 'Hoy, ' : ''}
                   {format(parseISO(expandedDay), "EEEE d 'de' MMMM", { locale: es })}
                 </h2>
-                <span className="text-xs font-bold text-flux-600 dark:text-flux-400 bg-flux-500/10 dark:bg-flux-500/20 px-3 py-1 rounded-full border border-flux-500/10">
+                <span className="text-xs font-bold text-flux-650 dark:text-flux-400 bg-flux-500/10 dark:bg-flux-500/20 px-3 py-1 rounded-full border border-flux-500/10">
                   {(groupedEventsToRender[expandedDay] || []).length} Actividades
                 </span>
               </div>
@@ -517,9 +517,9 @@ export function AgendaView() {
           
           <div className="space-y-4.5">
             {/* Baby Futbol */}
-            <div className="flex items-center justify-between p-4.5 bg-orange-500/5 dark:bg-orange-500/10 border border-orange-500/10 rounded-2xl">
+            <div className="flex items-center justify-between p-4.5 bg-gradient-to-br from-orange-500/5 via-orange-500/10 to-amber-500/5 border border-orange-500/15 rounded-2xl shadow-[0_0_15px_rgba(249,115,22,0.02)]">
               <div className="flex items-center gap-3">
-                <div className="bg-orange-500/20 p-2.5 rounded-2xl flex items-center justify-center text-orange-600 dark:text-orange-400 shadow-inner">
+                <div className="bg-orange-500/20 p-2.5 rounded-2xl flex items-center justify-center text-orange-600 dark:text-orange-400 shadow-inner border border-orange-500/10">
                   <Flame className="w-5 h-5" />
                 </div>
                 <div>
@@ -528,15 +528,15 @@ export function AgendaView() {
                 </div>
               </div>
               <div className="text-right">
-                <p className="text-2xl font-display font-black text-orange-600 dark:text-orange-400 leading-none">{streaks.baby}</p>
+                <p className="text-3xl font-display font-black text-orange-600 dark:text-orange-450 leading-none">{streaks.baby}</p>
                 <p className="text-[9px] font-bold text-orange-500/80 uppercase tracking-widest mt-1">Semanas</p>
               </div>
             </div>
 
             {/* Gym */}
-            <div className="flex items-center justify-between p-4.5 bg-blue-500/5 dark:bg-blue-500/10 border border-blue-500/10 rounded-2xl">
+            <div className="flex items-center justify-between p-4.5 bg-gradient-to-br from-blue-500/5 via-blue-500/10 to-indigo-500/5 border border-blue-500/15 rounded-2xl shadow-[0_0_15px_rgba(59,130,246,0.02)]">
               <div className="flex items-center gap-3">
-                <div className="bg-blue-500/20 p-2.5 rounded-2xl flex items-center justify-center text-blue-600 dark:text-blue-400 shadow-inner">
+                <div className="bg-blue-500/20 p-2.5 rounded-2xl flex items-center justify-center text-blue-600 dark:text-blue-400 shadow-inner border border-blue-500/10">
                   <Trophy className="w-5 h-5" />
                 </div>
                 <div>
@@ -545,7 +545,7 @@ export function AgendaView() {
                 </div>
               </div>
               <div className="text-right">
-                <p className="text-2xl font-display font-black text-blue-600 dark:text-blue-400 leading-none">{streaks.gym}</p>
+                <p className="text-3xl font-display font-black text-blue-600 dark:text-blue-450 leading-none">{streaks.gym}</p>
                 <p className="text-[9px] font-bold text-blue-500/80 uppercase tracking-widest mt-1">Sesiones</p>
               </div>
             </div>
@@ -587,10 +587,11 @@ export function AgendaView() {
             <p>
               ¿Deseas postergar <strong>"{rescheduleDialog.summary}"</strong> a las <strong>{rescheduleDialog.suggestedTime}</strong>?
             </p>
-            <div className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-2xl text-xs sm:text-sm text-purple-700 dark:text-purple-300 italic shadow-inner">
-              💡 Razón: {rescheduleDialog.reason}
+            <div className="p-4.5 bg-gradient-to-br from-purple-500/10 via-indigo-500/10 to-pink-500/10 border border-purple-500/20 rounded-2xl text-xs sm:text-sm text-purple-800 dark:text-purple-300 italic shadow-inner">
+              <span className="font-extrabold block not-italic text-purple-650 dark:text-purple-400 mb-1">💡 Razón del Reajuste:</span>
+              "{rescheduleDialog.reason}"
             </div>
-            <p className="text-xs text-surface-450 leading-relaxed mt-2.5">
+            <p className="text-xs text-surface-500 dark:text-surface-450 leading-relaxed mt-2.5">
               👉 Presiona <strong>"Aceptar"</strong> para postergar el evento en esa hora.
               <br />
               👉 Presiona <strong>"Eliminar"</strong> para quitarlo de forma definitiva.

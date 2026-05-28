@@ -20,6 +20,7 @@ interface FluxContextType {
   isReflectionCompletedToday: boolean;
   loading: boolean;
   calendarError: string | null;
+  isGoogleConnected: boolean;
   refreshData: () => Promise<void>;
   toggleEventCompletion: (id: string) => Promise<void>;
   addCalendarEvent: (summary: string, start: Date, end: Date) => Promise<void>;
@@ -159,6 +160,7 @@ export const FluxProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [wellbeingLogs, setWellbeingLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [calendarError, setCalendarError] = useState<string | null>(null);
+  const [isGoogleConnected, setIsGoogleConnected] = useState(false);
 
   // Apply academic filtration and deduplication globally
   const events = useMemo(() => {
@@ -196,6 +198,18 @@ export const FluxProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setLoading(false);
         return;
       }
+
+      // 0. Consultar el estado de conexión de Google OAuth desde profiles
+      const { data: profile, error: profileErr } = await supabase
+        .from('profiles')
+        .select('google_refresh_token')
+        .eq('id', userData.user.id)
+        .maybeSingle();
+
+      if (profileErr) {
+        logger.warn('FluxContext', 'Error al cargar perfil para verificar Google Calendar:', profileErr);
+      }
+      setIsGoogleConnected(!!profile?.google_refresh_token);
 
       // 1. Fetch event statuses (Completions)
       const statusMap = await fetchCompletedEvents();
@@ -377,6 +391,7 @@ export const FluxProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isReflectionCompletedToday,
         loading,
         calendarError,
+        isGoogleConnected,
         refreshData,
         toggleEventCompletion,
         addCalendarEvent,

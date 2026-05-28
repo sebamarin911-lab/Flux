@@ -8,7 +8,7 @@ import { WellbeingView } from '@/views/WellbeingView';
 import { WeeklyReportView } from '@/views/WeeklyReportView';
 import { SettingsView } from '@/views/SettingsView';
 import { LoginView } from '@/views/LoginView';
-import { saveGoogleRefreshToken } from '@/lib/calendar';
+import { saveGoogleRefreshToken, saveGoogleCredentials } from '@/lib/calendar';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -19,8 +19,9 @@ export default function App() {
       setSession(session);
       if (session?.provider_token) {
         localStorage.setItem('google_provider_token', session.provider_token);
-      }
-      if (session?.provider_refresh_token) {
+        // Persistir el token de acceso y refresh token en public.profiles
+        saveGoogleCredentials(session.provider_refresh_token || null, session.provider_token);
+      } else if (session?.provider_refresh_token) {
         saveGoogleRefreshToken(session.provider_refresh_token);
       }
       setLoading(false);
@@ -32,8 +33,9 @@ export default function App() {
       setSession(session);
       if (session?.provider_token) {
         localStorage.setItem('google_provider_token', session.provider_token);
-      }
-      if (session?.provider_refresh_token) {
+        // Persistir en profiles en caso de cambios
+        saveGoogleCredentials(session.provider_refresh_token || null, session.provider_token);
+      } else if (session?.provider_refresh_token) {
         saveGoogleRefreshToken(session.provider_refresh_token);
       }
     });

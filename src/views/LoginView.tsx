@@ -9,7 +9,7 @@ export function LoginView() {
       provider: 'google',
       options: {
         redirectTo: window.location.origin,
-        scopes: 'https://www.googleapis.com/auth/calendar',
+        scopes: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly',
         queryParams: {
           access_type: 'offline',
           prompt: 'consent',

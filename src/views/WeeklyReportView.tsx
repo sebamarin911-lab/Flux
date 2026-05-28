@@ -114,7 +114,7 @@ export function WeeklyReportView() {
       {/* Header */}
       <div className="border-b border-surface-150/15 dark:border-surface-800/15 pb-5">
         <h1 className="text-3xl md:text-4xl font-display font-extrabold text-surface-900 dark:text-white flex items-center gap-3.5 tracking-tight">
-          <TrendingUp className="w-8 h-8 text-flux-500 animate-pulse" />
+          <TrendingUp className="w-8 h-8 text-flux-500 animate-pulse-glow rounded-full" />
           Reporte Semanal
         </h1>
         <p className="text-xs font-semibold text-surface-450 mt-1 uppercase tracking-wider">
@@ -144,7 +144,7 @@ export function WeeklyReportView() {
         <div className="glass-card p-5 rounded-3xl border border-surface-150/10 dark:border-surface-800/20 text-center relative overflow-hidden group hover:scale-[1.02] transition-all duration-300">
           <div className="absolute top-0 right-0 w-16 h-16 bg-purple-500/5 dark:bg-purple-500/10 rounded-full blur-xl pointer-events-none"></div>
           <Brain className="w-6 h-6 text-purple-500 mx-auto mb-2.5 transition-transform duration-300 group-hover:scale-110" />
-          <p className="text-3xl font-display font-extrabold text-purple-600 dark:text-purple-400 tracking-tight">{avgMentalScore ?? '—'}</p>
+          <p className="text-3xl font-display font-extrabold text-purple-650 dark:text-purple-400 tracking-tight">{avgMentalScore ?? '—'}</p>
           <p className="text-[10px] font-bold text-surface-450 uppercase tracking-widest mt-1">Bienestar Promedio</p>
         </div>
 
@@ -159,8 +159,10 @@ export function WeeklyReportView() {
 
       {/* Weekly Chart */}
       <div className="glass-card p-6 md:p-8 rounded-3xl border border-surface-150/10 dark:border-surface-800/20 shadow-sm relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-40 h-40 bg-teal-500/5 rounded-full blur-[70px] pointer-events-none" />
+        
         <h2 className="text-lg font-bold mb-6 text-surface-900 dark:text-white flex items-center gap-2">
-          <span>📈</span> Actividad y Cumplimiento
+          <span className="animate-float">📈</span> Actividad y Cumplimiento
         </h2>
         <div className="h-[250px] w-full">
           <ResponsiveContainer width="100%" height="100%">
@@ -184,16 +186,17 @@ export function WeeklyReportView() {
               />
               <Tooltip 
                 contentStyle={{
-                  borderRadius: '16px',
+                  borderRadius: '20px',
                   border: '1px solid rgba(255, 255, 255, 0.1)',
                   background: 'rgba(15, 23, 42, 0.85)',
-                  backdropFilter: 'blur(12px)',
+                  backdropFilter: 'blur(16px) saturate(140%)',
+                  WebkitBackdropFilter: 'blur(16px) saturate(140%)',
                   color: '#f8fafc',
                   fontSize: '12px',
-                  boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)',
+                  boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.3)',
                 }}
-                itemStyle={{ color: '#e2e8f0', fontWeight: 'bold' }}
-                labelStyle={{ color: '#94a3b8', fontWeight: 'bold', marginBottom: '4px' }}
+                itemStyle={{ color: '#f1f5f9', fontWeight: 'bold' }}
+                labelStyle={{ color: '#94a3b8', fontWeight: 'extrabold', marginBottom: '6px' }}
               />
               <Area type="monotone" dataKey="Eventos" stroke="#14b8a6" strokeWidth={2.5} fillOpacity={1} fill="url(#colorEventos)" activeDot={{ r: 6, strokeWidth: 0, fill: '#14b8a6' }} />
               <Area type="monotone" dataKey="Completados" stroke="#10b981" strokeWidth={2.5} fillOpacity={1} fill="url(#colorCompletados)" activeDot={{ r: 6, strokeWidth: 0, fill: '#10b981' }} />
@@ -223,7 +226,7 @@ export function WeeklyReportView() {
                       <p className="text-base font-extrabold text-surface-900 dark:text-white">{format(day, 'd')}</p>
                     </div>
                     <div className="flex-1">
-                      <div className="h-2.5 bg-surface-100 dark:bg-surface-800/80 rounded-full overflow-hidden relative shadow-inner">
+                      <div className="h-3 bg-surface-100 dark:bg-surface-800/60 rounded-full overflow-hidden relative shadow-inner">
                         <div 
                           className={`h-full rounded-full transition-all duration-500 relative ${
                             pct === 100 
@@ -253,7 +256,7 @@ export function WeeklyReportView() {
           {/* Sports activity card block */}
           <div className="grid grid-cols-1 gap-6">
             {/* Baby Futbol */}
-            <div className="glass-card bg-gradient-to-br from-orange-500/5 via-orange-500/10 to-amber-500/5 dark:from-orange-950/10 dark:via-orange-950/15 dark:to-amber-950/5 p-6 rounded-3xl border border-orange-500/20 dark:border-orange-500/10 relative overflow-hidden group hover:scale-[1.01] transition-all duration-300 shadow-sm">
+            <div className="glass-card bg-gradient-to-br from-orange-500/5 via-orange-500/10 to-amber-500/5 dark:from-orange-950/10 dark:via-orange-950/15 dark:to-amber-950/5 p-6 rounded-3xl border border-orange-500/25 dark:border-orange-500/15 relative overflow-hidden group hover:scale-[1.01] transition-all duration-300 shadow-sm">
               <div className="absolute top-0 right-0 w-24 h-24 bg-orange-500/10 rounded-full blur-[40px] pointer-events-none group-hover:scale-125 transition-transform duration-500"></div>
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-xl bg-orange-500/15 flex items-center justify-center border border-orange-500/20">
@@ -266,7 +269,7 @@ export function WeeklyReportView() {
             </div>
 
             {/* Gym */}
-            <div className="glass-card bg-gradient-to-br from-blue-500/5 via-blue-500/10 to-indigo-500/5 dark:from-blue-950/10 dark:via-blue-950/15 dark:to-indigo-950/5 p-6 rounded-3xl border border-blue-500/20 dark:border-blue-500/10 relative overflow-hidden group hover:scale-[1.01] transition-all duration-300 shadow-sm">
+            <div className="glass-card bg-gradient-to-br from-blue-500/5 via-blue-500/10 to-indigo-500/5 dark:from-blue-950/10 dark:via-blue-950/15 dark:to-indigo-950/5 p-6 rounded-3xl border border-blue-500/25 dark:border-blue-500/15 relative overflow-hidden group hover:scale-[1.01] transition-all duration-300 shadow-sm">
               <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/10 rounded-full blur-[40px] pointer-events-none group-hover:scale-125 transition-transform duration-500"></div>
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-xl bg-blue-500/15 flex items-center justify-center border border-blue-500/20">
@@ -281,7 +284,7 @@ export function WeeklyReportView() {
 
           {/* Motivational Footer */}
           <div className="bg-gradient-to-r from-surface-900 via-surface-950 to-black text-white p-6 md:p-8 rounded-3xl shadow-xl relative overflow-hidden border border-white/5">
-            <div className="absolute -top-12 -right-12 w-40 h-40 bg-flux-500 rounded-full blur-[80px] opacity-25"></div>
+            <div className="absolute -top-12 -right-12 w-40 h-40 bg-flux-500 rounded-full blur-[80px] opacity-25 animate-pulse-slow"></div>
             <div className="absolute -bottom-8 -left-8 w-24 h-24 bg-purple-500 rounded-full blur-[60px] opacity-15"></div>
             <p className="text-base md:text-lg font-extrabold relative z-10 tracking-tight leading-snug">
               {completionRate >= 80 ? '🔥 ¡Semana increíble! Tu constancia es admirable.' :
@@ -289,7 +292,7 @@ export function WeeklyReportView() {
                completionRate > 0 ? '🌱 Vas bien. La clave es no detenerse.' :
                '🚀 Empieza a completar tus eventos para ver tu progreso aquí.'}
             </p>
-            <p className="text-surface-450 text-xs italic mt-3.5 relative z-10 pl-3.5 border-l-2 border-flux-500">
+            <p className="text-surface-400 text-xs italic mt-3.5 relative z-10 pl-3.5 border-l-2 border-flux-400">
               "La disciplina es el puente entre metas y logros."
             </p>
           </div>
