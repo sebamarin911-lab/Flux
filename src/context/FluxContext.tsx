@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { fetchWeekEvents, createEvent, updateEvent, deleteEvent } from '@/lib/calendar';
 import { fetchCompletedEvents, saveEventCompletion, fetchUserStreak, updateUserStreak, type StreakInfo } from '@/lib/completedEvents';
@@ -189,7 +189,7 @@ export const FluxProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [wellbeingLogs]);
 
   // Refresh all state globally
-  const refreshData = async () => {
+  const refreshData = useCallback(async () => {
     setLoading(true);
     setCalendarError(null);
     try {
@@ -265,15 +265,15 @@ export const FluxProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // Sync on mount
   useEffect(() => {
     refreshData();
-  }, []);
+  }, [refreshData]);
 
   // Completion Checklist control
-  const toggleEventCompletion = async (id: string) => {
+  const toggleEventCompletion = useCallback(async (id: string) => {
     const currentStatus = !!eventStatus[id];
     const newStatus = !currentStatus;
 
@@ -293,10 +293,10 @@ export const FluxProvider: React.FC<{ children: React.ReactNode }> = ({ children
       'FluxContext_StreakSync'
     );
     setStreakInfo(validatedStreak);
-  };
+  }, [eventStatus, todayEvents]);
 
   // Create event
-  const addCalendarEvent = async (summary: string, start: Date, end: Date) => {
+  const addCalendarEvent = useCallback(async (summary: string, start: Date, end: Date) => {
     setLoading(true);
     try {
       await createEvent(summary, start, end);
@@ -307,10 +307,10 @@ export const FluxProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setLoading(false);
     }
-  };
+  }, [refreshData]);
 
   // Update event
-  const updateCalendarEvent = async (id: string, updates: { summary?: string; startTime?: Date; endTime?: Date }) => {
+  const updateCalendarEvent = useCallback(async (id: string, updates: { summary?: string; startTime?: Date; endTime?: Date }) => {
     setLoading(true);
     try {
       await updateEvent(id, updates);
@@ -321,10 +321,10 @@ export const FluxProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setLoading(false);
     }
-  };
+  }, [refreshData]);
 
   // Delete event
-  const deleteCalendarEvent = async (id: string) => {
+  const deleteCalendarEvent = useCallback(async (id: string) => {
     setLoading(true);
     try {
       await deleteEvent(id);
@@ -335,10 +335,10 @@ export const FluxProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setLoading(false);
     }
-  };
+  }, [refreshData]);
 
   // Save wellbeing reflection notes
-  const saveWellbeingReflection = async (score: number, notes: string): Promise<boolean> => {
+  const saveWellbeingReflection = useCallback(async (score: number, notes: string): Promise<boolean> => {
     try {
       const { data: userData } = await supabase.auth.getUser();
       if (!userData?.user) return false;
@@ -378,28 +378,45 @@ export const FluxProvider: React.FC<{ children: React.ReactNode }> = ({ children
       logger.error('FluxContext', 'Unexpected error saving reflection', err);
       return false;
     }
-  };
+  }, [wellbeingLogs, refreshData]);
+
+  // Memoize the global provider value reference to prevent redundant down-stream re-renders
+  const contextValue = useMemo(() => ({
+    events,
+    eventStatus,
+    streakInfo,
+    wellbeingLogs,
+    introspectionStreak,
+    isReflectionCompletedToday,
+    loading,
+    calendarError,
+    isGoogleConnected,
+    refreshData,
+    toggleEventCompletion,
+    addCalendarEvent,
+    updateCalendarEvent,
+    deleteCalendarEvent,
+    saveWellbeingReflection
+  }), [
+    events,
+    eventStatus,
+    streakInfo,
+    wellbeingLogs,
+    introspectionStreak,
+    isReflectionCompletedToday,
+    loading,
+    calendarError,
+    isGoogleConnected,
+    refreshData,
+    toggleEventCompletion,
+    addCalendarEvent,
+    updateCalendarEvent,
+    deleteCalendarEvent,
+    saveWellbeingReflection
+  ]);
 
   return (
-    <FluxContext.Provider
-      value={{
-        events,
-        eventStatus,
-        streakInfo,
-        wellbeingLogs,
-        introspectionStreak,
-        isReflectionCompletedToday,
-        loading,
-        calendarError,
-        isGoogleConnected,
-        refreshData,
-        toggleEventCompletion,
-        addCalendarEvent,
-        updateCalendarEvent,
-        deleteCalendarEvent,
-        saveWellbeingReflection
-      }}
-    >
+    <FluxContext.Provider value={contextValue}>
       {children}
     </FluxContext.Provider>
   );
