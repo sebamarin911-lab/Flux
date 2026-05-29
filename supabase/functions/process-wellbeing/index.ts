@@ -209,26 +209,22 @@ serve(async (req) => {
           ? lastReflections.map((r: any) => `Fecha: ${r.reflection_date}\nReflexión: ${r.reflection}\nFeedback: ${r.feedback}`).join("\n\n")
           : "Sin historial de reflexiones aún.";
 
-        // LLM Prompt para saludo personalizado basado en el RAG
-        const systemPrompt = `
-Eres la Inteligencia Artificial (Coach Personalizado) de "Flux", una PWA de productividad, deporte y psicología TCC.
-Tu audiencia es un único usuario. Tu comunicación es directa, honesta, madura y sin rodeos. Evita saludos genéricos vacíos y tecnicismos psicológicos.
-Tu tarea actual es generar una única pregunta inicial (icebreaker / saludo guiado) basada en las preferencias implícitas del usuario y su historial reciente.
-
-Reglas del saludo:
-- Debe ser una única frase o pregunta directa y empática de bienvenida.
+        // Prompt compactado para ahorrar tokens y acelerar la respuesta de Groq
+        const systemPrompt = `Eres el Coach de Flux (TCC/productividad). Comunicación directa, honesta y sin rodeos.
+Tarea: Genera una única pregunta inicial (icebreaker) basada en el perfil RAG e historial del usuario.
+Reglas:
+- Una sola frase o pregunta de bienvenida empática.
 - Máximo 25 palabras.
-- Integra información de sus preferencias o de lo que conversaron en reflexiones previas si es relevante.
+- Integra preferencias o conversaciones previas de manera sutil si aplica.
 
-Preferencias Implícitas (RAG Profile) del usuario:
+Perfil RAG:
 ${JSON.stringify(profileData, null, 2)}
 
-Historial Reciente de Reflexiones:
+Historial:
 ${reflectionHistory}
 
-Eventos del día actual (marcados como COMPLETO o PENDIENTE):
-${completedList}
-        `;
+Eventos de hoy:
+${completedList}`;
 
         const greetingText = await callGroq(
           systemPrompt,
@@ -279,39 +275,33 @@ ${completedList}
           ? historyRows.map((r: any) => `Fecha: ${r.reflection_date}\nReflexión: ${r.reflection}\nFeedback: ${r.feedback}`).join("\n\n")
           : "No hay reflexiones previas.";
 
-        const systemPrompt = `
-Eres la Inteligencia Artificial (Coach Personalizado) de "Flux".
-Tu comunicación es directa, honesta, sin rodeos y sin discursos terapéuticos académicos. Háblame con total honestidad y claridad.
+        const systemPrompt = `Eres el Coach de Flux (TCC/productividad). Comunicación directa, cruda, honesta y sin rodeos académicos.
+Instrucciones:
+1. Analiza mi reflexión, pregunta inicial, respuesta e hitos de hoy.
+2. Escribe feedback práctico de máx 3 párrafos en "feedback".
+3. Sugiere una pregunta cerrada/directa en "question" (o null) para profundizar.
+4. Jamás sugieras cambios de agenda en el texto.
+5. Si detectas un patrón de cambio conductual consistente con confianza >80% (ej. cambiar conscientemente "Baby fútbol" por "Gym" o viceversa), sugiérelo únicamente en "suggested_agenda_change".
+Reglas de Negocio:
+- Inmutabilidad Deportiva: Los bloques de deporte son sagrados. Analiza desvíos de frente y sin rodeos.
+- Agenda Universitaria: Depende del campus del usuario.
 
-Instrucciones de Feedback de Bienestar:
-1. Analiza mi reflexión escrita hoy, la pregunta inicial que me hiciste y mi respuesta (si corresponde), junto con mis hitos y eventos del día.
-2. Escribe una respuesta con feedback práctico, estructurada en un máximo de 3 párrafos.
-3. OPCIONALMENTE, genera una única pregunta cerrada o muy directa al final para profundizar en el punto más crítico. Déjala en el campo "question". Si no es relevante, déjala como null.
-4. Jamás sugieras cambios inmediatos en la agenda académica o deportiva en el texto.
-5. Identifica preferencias implícitas, mañas o rutinas nuevas o de cambios conscientes. Ten presente que a veces el usuario puede cambiar conscientemente "Baby fútbol" por "Gym" (o viceversa) según sus dinámicas; acógelo con naturalidad si es el caso y aprende de este patrón.
-6. Si encuentras un patrón de cambio conductual repetitivo con un nivel de confianza extremadamente alto (>80% de consistencia o reiteración explícita) que prefiero un cambio sistemático en la agenda, inyecta la propuesta en el campo "suggested_agenda_change". De lo contrario, este campo DEBE ser null.
-
-Reglas del Stack y Negocio de Flux:
-- Inmutabilidad Deportiva: Los bloques de deporte son sagrados. Si el usuario los canceló, analízalo con seriedad pero sin rodeos.
-- Filtro Universitario Geo-dependiente: La agenda universitaria depende del campus actual del usuario.
-
-Debes devolver estrictamente un objeto JSON con la estructura:
+Devuelve estrictamente este JSON:
 {
-  "feedback": "Tu feedback práctico (máximo 3 párrafos, directo, honesto, empático pero sin rodeos ni tecnicismos psicológicos)",
-  "question": "Pregunta única cerrada/directa para profundizar (o null si no amerita)",
+  "feedback": "Texto de feedback práctico y directo (máx 3 párrafos)",
+  "question": "Pregunta única cerrada/directa o null",
   "core_learnings_update": {
-    "preferences": { "clave": "valor" }, // Preferencias encontradas (rutinas, gustos, lo que le funciona)
-    "patterns": { "patron_recurrido": "explicacion" }, // Patrones conductuales (ej. cambios lunes de gym por fútbol)
-    "confidence_level": 0.85 // Nivel de confianza estimado (0.0 a 1.0)
+    "preferences": {}, // Preferencias encontradas
+    "patterns": {}, // Patrones conductuales
+    "confidence_level": 0.85
   },
   "suggested_agenda_change": {
-    "original_event": "Nombre de actividad original (ej: Gym)",
-    "suggested_event": "Nombre de actividad sugerida (ej: Baby fútbol)",
-    "reason": "Razón directa de por qué este cambio optimizará su consistencia (ej: 'Siempre cambias el gym por fútbol los martes si te cancelan X.')",
+    "original_event": "Actividad original (ej: Gym)",
+    "suggested_event": "Actividad sugerida (ej: Baby fútbol)",
+    "reason": "Razón corta de adherencia en español",
     "confidence": 0.85
-  } (o null si no aplica con confianza > 80%)
-}
-        `;
+  } // o null si no aplica con confianza > 80%
+}`;
 
         const userPrompt = `
 Perfil de Preferencias Acumuladas Actual (RAG Profile):
