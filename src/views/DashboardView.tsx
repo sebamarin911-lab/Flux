@@ -28,7 +28,6 @@ export function DashboardView() {
   const [userName, setUserName] = useState('');
 
   // Interactive Greeting & Tips & Mood track states
-  const [vibeOverride, setVibeOverride] = useState<'morning' | 'afternoon' | 'evening' | null>(null);
   const [revealedTip, setRevealedTip] = useState<string | null>(null);
   const [tipPulse, setTipPulse] = useState(false);
   const [savingMood, setSavingMood] = useState(false);
@@ -257,7 +256,7 @@ export function DashboardView() {
     return 'evening';
   }, []);
 
-  const activePeriod = vibeOverride || currentPeriod;
+  const activePeriod = currentPeriod;
 
   // Greeting based on active period
   const greeting = useMemo(() => {
@@ -536,39 +535,6 @@ export function DashboardView() {
             <span className="text-[10px] font-black uppercase tracking-widest bg-white/20 backdrop-blur-xl px-4 py-2 rounded-full border border-white/15 shadow-sm text-white">
               {format(new Date(), "EEEE, d 'de' MMMM", { locale: es })}
             </span>
-            
-            {/* Interactive Switcher */}
-            <div className="flex items-center gap-1 bg-white/10 backdrop-blur-xl p-1 rounded-2xl border border-white/10 pointer-events-auto">
-              {(['morning', 'afternoon', 'evening'] as const).map((period) => {
-                const label = period === 'morning' ? '🌅 Mañana' : period === 'afternoon' ? '🌤️ Tarde' : '🌙 Noche';
-                return (
-                  <button 
-                    key={period}
-                    onClick={(e) => { 
-                      e.stopPropagation(); 
-                      if(navigator.vibrate) navigator.vibrate(10); 
-                      setVibeOverride(period); 
-                    }}
-                    className={`px-3 py-1.5 rounded-xl text-[10px] font-black tracking-wide transition-all cursor-pointer ${
-                      activePeriod === period 
-                        ? 'bg-white text-surface-950 shadow-md scale-105' 
-                        : 'text-white/80 hover:bg-white/10 hover:text-white'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-              {vibeOverride && (
-                <button 
-                  onClick={(e) => { e.stopPropagation(); if(navigator.vibrate) navigator.vibrate(12); setVibeOverride(null); }}
-                  className="px-2 py-1.5 rounded-xl text-[10px] font-black text-white bg-white/20 hover:bg-white/30 transition-all cursor-pointer"
-                  title="Reset a hora local"
-                >
-                  ⏱️
-                </button>
-              )}
-            </div>
           </div>
 
           {/* Core Info */}
