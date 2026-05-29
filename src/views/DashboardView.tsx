@@ -251,9 +251,9 @@ export function DashboardView() {
 
   const currentPeriod = useMemo(() => {
     const h = new Date().getHours();
-    if (h < 12) return 'morning';
-    if (h < 19) return 'afternoon';
-    return 'evening';
+    if (h >= 6 && h < 12) return 'morning';
+    if (h >= 12 && h < 19) return 'afternoon';
+    return 'evening'; // Clasifica de 19:00 a 05:59 como Noche/Madrugada
   }, []);
 
   const activePeriod = currentPeriod;
