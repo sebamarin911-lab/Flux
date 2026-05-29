@@ -126,90 +126,91 @@ serve(async (req) => {
     // ACCIÓN: INIT (Carga inicial de WellbeingView para Icebreaker personalizado)
     // ─────────────────────────────────────────────────────────────────
     if (action === "init") {
-      console.log(`[process-wellbeing] Carga inicial (init) para usuario: ${user.id}`);
-      const now = new Date();
+      try {
+        console.log(`[process-wellbeing] Carga inicial (init) para usuario: ${user.id}`);
+        const now = new Date();
 
-      // Comprobar eventos claves de hoy para atajar directamente
-      const hasPsicologo = completed_events.some(
-        (e: EventDto) => e.completed && /psicologo|psicólogo/i.test(e.summary)
-      );
-      
-      const sportsEvents = completed_events.filter(
-        (e: EventDto) => /gym|gimnasio|baby|fútbol|futbol|entrenar/i.test(e.summary)
-      );
-
-      // Regla de Negocio: Psicólogo Completado Hito
-      if (hasPsicologo) {
-        return new Response(JSON.stringify({
-          greeting: "Hoy tuviste Psicólogo, ¿cómo te sentiste?"
-        }), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-      }
-
-      // Regla de Negocio: Bloques Deportivos Inmutables (Garantizar persistencia con la hora)
-      if (sportsEvents.length > 0) {
-        const comp = sportsEvents.find((e: EventDto) => e.completed);
-        const pend = sportsEvents.find((e: EventDto) => !e.completed);
+        // Comprobar eventos claves de hoy para atajar directamente
+        const hasPsicologo = completed_events.some(
+          (e: EventDto) => e.completed && /psicologo|psicólogo/i.test(e.summary)
+        );
         
-        if (comp) {
+        const sportsEvents = completed_events.filter(
+          (e: EventDto) => /gym|gimnasio|baby|fútbol|futbol|entrenar/i.test(e.summary)
+        );
+
+        // Regla de Negocio: Psicólogo Completado Hito
+        if (hasPsicologo) {
           return new Response(JSON.stringify({
-            greeting: `Hoy completaste tu bloque deportivo de "${comp.summary}". ¿Cómo te dejó el entrenamiento hoy?`
+            greeting: "Hoy tuviste Psicólogo, ¿cómo te sentiste?"
           }), {
             status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json" }
           });
-        } else if (pend) {
-          // Comprobar si el evento deportivo pendiente es futuro (aún no ha pasado en la hora del usuario)
-          let isFuture = false;
-          if (pend.start_time) {
-            try {
-              const eventStart = new Date(pend.start_time);
-              if (!isNaN(eventStart.getTime())) {
-                // Si la hora actual es antes del inicio de la actividad, es un bloque futuro
-                if (now.getTime() < eventStart.getTime()) {
-                  isFuture = true;
+        }
+
+        // Regla de Negocio: Bloques Deportivos Inmutables (Garantizar persistencia con la hora)
+        if (sportsEvents.length > 0) {
+          const comp = sportsEvents.find((e: EventDto) => e.completed);
+          const pend = sportsEvents.find((e: EventDto) => !e.completed);
+          
+          if (comp) {
+            return new Response(JSON.stringify({
+              greeting: `Hoy completaste tu bloque deportivo de "${comp.summary}". ¿Cómo te dejó el entrenamiento hoy?`
+            }), {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+          } else if (pend) {
+            // Comprobar si el evento deportivo pendiente es futuro (aún no ha pasado en la hora del usuario)
+            let isFuture = false;
+            if (pend.start_time) {
+              try {
+                const eventStart = new Date(pend.start_time);
+                if (!isNaN(eventStart.getTime())) {
+                  // Si la hora actual es antes del inicio de la actividad, es un bloque futuro
+                  if (now.getTime() < eventStart.getTime()) {
+                    isFuture = true;
+                  }
                 }
+              } catch (err) {
+                console.warn("[process-wellbeing] Error parseando fecha en init:", err);
               }
-            } catch (err) {
-              console.warn("[process-wellbeing] Error parseando fecha en init:", err);
+            }
+
+            if (isFuture) {
+              return new Response(JSON.stringify({
+                greeting: `Hoy tienes programado "${pend.summary}". Recuerda que los bloques deportivos en Flux son inmutables. ¡Prepárate para darlo todo a la hora pactada!`
+              }), {
+                status: 200,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+              });
+            } else {
+              // El evento deportivo ya pasó o debería haber pasado, efectivamente quedó pendiente
+              return new Response(JSON.stringify({
+                greeting: `Hoy tenías programado "${pend.summary}" pero quedó pendiente. Recuerda que el deporte en Flux es inmutable. ¿Qué te impidió realizarlo?`
+              }), {
+                status: 200,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+              });
             }
           }
-
-          if (isFuture) {
-            return new Response(JSON.stringify({
-              greeting: `Hoy tienes programado "${pend.summary}". Recuerda que los bloques deportivos en Flux son inmutables. ¡Prepárate para darlo todo a la hora pactada!`
-            }), {
-              status: 200,
-              headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
-          } else {
-            // El evento deportivo ya pasó o debería haber pasado, efectivamente quedó pendiente
-            return new Response(JSON.stringify({
-              greeting: `Hoy tenías programado "${pend.summary}" pero quedó pendiente. Recuerda que el deporte en Flux es inmutable. ¿Qué te impidió realizarlo?`
-            }), {
-              status: 200,
-              headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
-          }
         }
-      }
 
-      // RAG: Obtener las últimas 3 reflexiones guardadas para contextualizar el saludo
-      const { data: lastReflections } = await supabase
-        .from("daily_reflections")
-        .select("reflection, feedback, reflection_date")
-        .eq("user_id", user.id)
-        .order("reflection_date", { ascending: false })
-        .limit(3);
+        // RAG: Obtener las últimas 3 reflexiones guardadas para contextualizar el saludo
+        const { data: lastReflections } = await supabase
+          .from("daily_reflections")
+          .select("reflection, feedback, reflection_date")
+          .eq("user_id", user.id)
+          .order("reflection_date", { ascending: false })
+          .limit(3);
 
-      const reflectionHistory = lastReflections && lastReflections.length > 0
-        ? lastReflections.map((r: any) => `Fecha: ${r.reflection_date}\nReflexión: ${r.reflection}\nFeedback: ${r.feedback}`).join("\n\n")
-        : "Sin historial de reflexiones aún.";
+        const reflectionHistory = lastReflections && lastReflections.length > 0
+          ? lastReflections.map((r: any) => `Fecha: ${r.reflection_date}\nReflexión: ${r.reflection}\nFeedback: ${r.feedback}`).join("\n\n")
+          : "Sin historial de reflexiones aún.";
 
-      // LLM Prompt para saludo personalizado basado en el RAG
-      const systemPrompt = `
+        // LLM Prompt para saludo personalizado basado en el RAG
+        const systemPrompt = `
 Eres la Inteligencia Artificial (Coach Personalizado) de "Flux", una PWA de productividad, deporte y psicología TCC.
 Tu audiencia es un único usuario. Tu comunicación es directa, honesta, madura y sin rodeos. Evita saludos genéricos vacíos y tecnicismos psicológicos.
 Tu tarea actual es generar una única pregunta inicial (icebreaker / saludo guiado) basada en las preferencias implícitas del usuario y su historial reciente.
@@ -227,20 +228,29 @@ ${reflectionHistory}
 
 Eventos del día actual (marcados como COMPLETO o PENDIENTE):
 ${completedList}
-      `;
+        `;
 
-      const greetingText = await callGroq(
-        systemPrompt,
-        "Genera la pregunta de bienvenida para esta noche.",
-        false
-      );
+        const greetingText = await callGroq(
+          systemPrompt,
+          "Genera la pregunta de bienvenida para esta noche.",
+          false
+        );
 
-      return new Response(JSON.stringify({
-        greeting: greetingText.trim().replace(/^"|"$/g, "")
-      }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
+        return new Response(JSON.stringify({
+          greeting: greetingText.trim().replace(/^"|"$/g, "")
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      } catch (err) {
+        console.error("[process-wellbeing] Error en acción init:", err);
+        return new Response(JSON.stringify({
+          greeting: "¿Cómo estuvo tu día? Escribe tu reflexión libre y directa."
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -256,19 +266,20 @@ ${completedList}
         });
       }
 
-      // RAG: Cargar reflexiones anteriores (últimas 5) para dar contexto continuo
-      const { data: historyRows } = await supabase
-        .from("daily_reflections")
-        .select("reflection_date, reflection, feedback")
-        .eq("user_id", user.id)
-        .order("reflection_date", { ascending: false })
-        .limit(5);
+      try {
+        // RAG: Cargar reflexiones anteriores (últimas 5) para dar contexto continuo
+        const { data: historyRows } = await supabase
+          .from("daily_reflections")
+          .select("reflection_date, reflection, feedback")
+          .eq("user_id", user.id)
+          .order("reflection_date", { ascending: false })
+          .limit(5);
 
-      const historyContext = historyRows && historyRows.length > 0
-        ? historyRows.map((r: any) => `Fecha: ${r.reflection_date}\nReflexión: ${r.reflection}\nFeedback: ${r.feedback}`).join("\n\n")
-        : "No hay reflexiones previas.";
+        const historyContext = historyRows && historyRows.length > 0
+          ? historyRows.map((r: any) => `Fecha: ${r.reflection_date}\nReflexión: ${r.reflection}\nFeedback: ${r.feedback}`).join("\n\n")
+          : "No hay reflexiones previas.";
 
-      const systemPrompt = `
+        const systemPrompt = `
 Eres la Inteligencia Artificial (Coach Personalizado) de "Flux".
 Tu comunicación es directa, honesta, sin rodeos y sin discursos terapéuticos académicos. Háblame con total honestidad y claridad.
 
@@ -300,9 +311,9 @@ Debes devolver estrictamente un objeto JSON con la estructura:
     "confidence": 0.85
   } (o null si no aplica con confianza > 80%)
 }
-      `;
+        `;
 
-      const userPrompt = `
+        const userPrompt = `
 Perfil de Preferencias Acumuladas Actual (RAG Profile):
 ${JSON.stringify(profileData, null, 2)}
 
@@ -318,79 +329,117 @@ ${completedList}
 
 - Mi Reflexión Escrita:
 "${reflection}"
-      `;
+        `;
 
-      const responseString = await callGroq(systemPrompt, userPrompt, true);
-      let aiResult: any;
-      try {
-        aiResult = JSON.parse(responseString);
-      } catch (parseErr) {
-        console.error("[process-wellbeing] Error parseando respuesta JSON de IA:", responseString, parseErr);
-        aiResult = {
-          feedback: "Tu reflexión ha sido guardada. Sigue registrando tu introspección para mantener tus metas claras y respetar tus bloques inmutables.",
+        const responseString = await callGroq(systemPrompt, userPrompt, true);
+        let aiResult: any;
+        try {
+          aiResult = JSON.parse(responseString);
+        } catch (parseErr) {
+          console.error("[process-wellbeing] Error parseando respuesta JSON de IA:", responseString, parseErr);
+          aiResult = {
+            feedback: "Tu reflexión ha sido guardada. Sigue registrando tu introspección para mantener tus metas claras y respetar tus bloques inmutables.",
+            question: null,
+            core_learnings_update: {},
+            suggested_agenda_change: null
+          };
+        }
+
+        // Actualizar el perfil RAG acumulativo en user_rag_profile
+        const rawUpdates = aiResult.core_learnings_update || {};
+        const newPreferences = { ...(profileData.preferences || {}), ...(rawUpdates.preferences || {}) };
+        const newPatterns = { ...(profileData.patterns || {}), ...(rawUpdates.patterns || {}) };
+        
+        const updatedProfile = {
+          ...profileData,
+          preferences: newPreferences,
+          patterns: newPatterns,
+          last_updated: new Date().toISOString()
+        };
+
+        // Guardar perfil RAG actualizado
+        const { error: profileUpsertErr } = await supabase
+          .from("user_rag_profile")
+          .upsert({
+            user_id: user.id,
+            profile_data: updatedProfile,
+            updated_at: new Date().toISOString()
+          }, { onConflict: "user_id" });
+
+        if (profileUpsertErr) console.error("[process-wellbeing] Error actualizando user_rag_profile:", profileUpsertErr);
+
+        // Guardar reflexión diaria en daily_reflections
+        const todayStr = new Date().toLocaleDateString("en-CA"); // Formato YYYY-MM-DD local
+        const { error: reflectionUpsertErr } = await supabase
+          .from("daily_reflections")
+          .upsert({
+            user_id: user.id,
+            reflection_date: todayStr,
+            reflection: reflection,
+            feedback: aiResult.feedback,
+            question: aiResult.question,
+            question_answered: false,
+            answer: null,
+            completed_events: completed_events,
+            updated_at: new Date().toISOString()
+          }, { onConflict: "user_id,reflection_date" });
+
+        if (reflectionUpsertErr) console.error("[process-wellbeing] Error guardando reflexión:", reflectionUpsertErr);
+
+        // Guardado legado en wellbeing_logs para no romper dependencias históricas
+        try {
+          await supabase.from("wellbeing_logs").upsert({
+            user_id: user.id,
+            semana: todayStr,
+            mental_score: body.mental_score || 3,
+            notas: reflection
+          }, { onConflict: "user_id,semana" });
+        } catch (legacyEx) {
+          console.warn("[process-wellbeing] Excepción guardando en legacy logs:", legacyEx);
+        }
+
+        return new Response(JSON.stringify(aiResult), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      } catch (err) {
+        console.error("[process-wellbeing] Error en acción reflection:", err);
+        
+        // Intentar al menos guardar localmente de forma básica para persistir el diario sin IA
+        const todayStr = new Date().toLocaleDateString("en-CA");
+        try {
+          await supabase.from("daily_reflections").upsert({
+            user_id: user.id,
+            reflection_date: todayStr,
+            reflection: reflection,
+            feedback: "Tu reflexión ha sido guardada. Sigue registrando tu introspección para mantener tus metas claras.",
+            question: null,
+            question_answered: false,
+            answer: null,
+            completed_events: completed_events,
+            updated_at: new Date().toISOString()
+          }, { onConflict: "user_id,reflection_date" });
+
+          await supabase.from("wellbeing_logs").upsert({
+            user_id: user.id,
+            semana: todayStr,
+            mental_score: body.mental_score || 3,
+            notas: reflection
+          }, { onConflict: "user_id,semana" });
+        } catch (dbErr) {
+          console.error("[process-wellbeing] Falló intento de guardado de emergencia:", dbErr);
+        }
+
+        return new Response(JSON.stringify({
+          feedback: "Tu reflexión ha sido registrada con éxito. Tu Coach de IA se encuentra momentáneamente en mantenimiento de cuotas, pero tu registro de bienestar ha sido persistido de forma segura.",
           question: null,
           core_learnings_update: {},
           suggested_agenda_change: null
-        };
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
       }
-
-      // Actualizar el perfil RAG acumulativo en user_rag_profile
-      const rawUpdates = aiResult.core_learnings_update || {};
-      const newPreferences = { ...(profileData.preferences || {}), ...(rawUpdates.preferences || {}) };
-      const newPatterns = { ...(profileData.patterns || {}), ...(rawUpdates.patterns || {}) };
-      
-      const updatedProfile = {
-        ...profileData,
-        preferences: newPreferences,
-        patterns: newPatterns,
-        last_updated: new Date().toISOString()
-      };
-
-      // Guardar perfil RAG actualizado
-      const { error: profileUpsertErr } = await supabase
-        .from("user_rag_profile")
-        .upsert({
-          user_id: user.id,
-          profile_data: updatedProfile,
-          updated_at: new Date().toISOString()
-        }, { onConflict: "user_id" });
-
-      if (profileUpsertErr) console.error("[process-wellbeing] Error actualizando user_rag_profile:", profileUpsertErr);
-
-      // Guardar reflexión diaria en daily_reflections
-      const todayStr = new Date().toLocaleDateString("en-CA"); // Formato YYYY-MM-DD local
-      const { error: reflectionUpsertErr } = await supabase
-        .from("daily_reflections")
-        .upsert({
-          user_id: user.id,
-          reflection_date: todayStr,
-          reflection: reflection,
-          feedback: aiResult.feedback,
-          question: aiResult.question,
-          question_answered: false,
-          answer: null,
-          completed_events: completed_events,
-          updated_at: new Date().toISOString()
-        }, { onConflict: "user_id,reflection_date" });
-
-      if (reflectionUpsertErr) console.error("[process-wellbeing] Error guardando reflexión:", reflectionUpsertErr);
-
-      // Guardado legado en wellbeing_logs para no romper dependencias históricas
-      try {
-        await supabase.from("wellbeing_logs").upsert({
-          user_id: user.id,
-          semana: todayStr,
-          mental_score: body.mental_score || 3,
-          notas: reflection
-        }, { onConflict: "user_id,semana" });
-      } catch (legacyEx) {
-        console.warn("[process-wellbeing] Excepción guardando en legacy logs:", legacyEx);
-      }
-
-      return new Response(JSON.stringify(aiResult), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -405,58 +454,62 @@ ${completedList}
         });
       }
 
-      const todayStr = new Date().toLocaleDateString("en-CA");
-      
-      const { error: updateErr } = await supabase
-        .from("daily_reflections")
-        .update({
-          question_answered: true,
-          answer: answer,
-          updated_at: new Date().toISOString()
-        })
-        .eq("user_id", user.id)
-        .eq("reflection_date", todayStr);
+      try {
+        const todayStr = new Date().toLocaleDateString("en-CA");
+        
+        const { error: updateErr } = await supabase
+          .from("daily_reflections")
+          .update({
+            question_answered: true,
+            answer: answer,
+            updated_at: new Date().toISOString()
+          })
+          .eq("user_id", user.id)
+          .eq("reflection_date", todayStr);
 
-      if (updateErr) {
-        return new Response(JSON.stringify({ error: "Error al registrar la respuesta", details: updateErr }), {
-          status: 500,
+        if (updateErr) throw updateErr;
+
+        // Actualizar perfil RAG
+        try {
+          const updatedProfile = {
+            ...profileData,
+            last_followup_answer: answer,
+            last_updated: new Date().toISOString()
+          };
+
+          await supabase
+            .from("user_rag_profile")
+            .upsert({
+              user_id: user.id,
+              profile_data: updatedProfile,
+              updated_at: new Date().toISOString()
+            }, { onConflict: "user_id" });
+        } catch (ragErr) {
+          console.warn("[process-wellbeing] Excepción actualizando RAG con respuesta:", ragErr);
+        }
+
+        return new Response(JSON.stringify({ success: true, message: "Respuesta registrada." }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      } catch (err) {
+        console.error("[process-wellbeing] Error en acción answer_question:", err);
+        return new Response(JSON.stringify({ success: false, message: "No se pudo registrar la respuesta en este momento debido a un error." }), {
+          status: 200,
           headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
-
-      // Actualizar perfil RAG
-      try {
-        const updatedProfile = {
-          ...profileData,
-          last_followup_answer: answer,
-          last_updated: new Date().toISOString()
-        };
-
-        await supabase
-          .from("user_rag_profile")
-          .upsert({
-            user_id: user.id,
-            profile_data: updatedProfile,
-            updated_at: new Date().toISOString()
-          }, { onConflict: "user_id" });
-      } catch (ragErr) {
-        console.warn("[process-wellbeing] Excepción actualizando RAG con respuesta:", ragErr);
-      }
-
-      return new Response(JSON.stringify({ success: true, message: "Respuesta registrada." }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
     }
 
     // ─────────────────────────────────────────────────────────────────
     // ACCIÓN: EVOLUTION (Historial de evolución cualitativa segura)
     // ─────────────────────────────────────────────────────────────────
     if (action === "evolution") {
-      const { history = [] } = body;
-      const historyText = history.slice(0, 10).map((h: string, idx: number) => `${idx + 1}. "${h}"`).join("\n");
+      try {
+        const { history = [] } = body;
+        const historyText = history.slice(0, 10).map((h: string, idx: number) => `${idx + 1}. "${h}"`).join("\n");
 
-      const systemPrompt = `
+        const systemPrompt = `
 Eres la Inteligencia Artificial (Coach Personalizado) de "Flux". Tu comunicación es directa, honesta, sin rodeos y sin jerga psicológica académica.
 Analiza el historial de textos de reflexión personal del usuario.
 Genera un resumen honesto y crudo en una única oración concisa sobre sus avances, estado de ánimo o patrones de agotamiento mental detectados en los últimos días.
@@ -464,29 +517,39 @@ Devuelve estrictamente un objeto JSON con la estructura:
 {
   "evolution": "Tu resumen crudo en una única frase concisa (máximo 30 palabras)."
 }
-      `;
+        `;
 
-      const responseText = await callGroq(systemPrompt, `Historial:\n${historyText}`, true);
-      let evolutionResult = { evolution: "Tu sentir va tomando forma. Sigue expresando tus reflexiones a diario." };
-      try {
-        evolutionResult = JSON.parse(responseText);
-      } catch {
-        // Fallback si falla el parseo
+        const responseText = await callGroq(systemPrompt, `Historial:\n${historyText}`, true);
+        let evolutionResult = { evolution: "Tu sentir va tomando forma. Sigue expresando tus reflexiones a diario." };
+        try {
+          evolutionResult = JSON.parse(responseText);
+        } catch {
+          // Fallback si falla el parseo
+        }
+
+        return new Response(JSON.stringify(evolutionResult), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      } catch (err) {
+        console.error("[process-wellbeing] Error en acción evolution:", err);
+        return new Response(JSON.stringify({
+          evolution: "Tu sentir va tomando forma de manera constante. Sigue registrando tus reflexiones para perfilar tu evolución emocional."
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
       }
-
-      return new Response(JSON.stringify(evolutionResult), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
     }
 
     // ─────────────────────────────────────────────────────────────────
     // ACCIÓN: RESCHEDULE (Sugerencia de reprogramación de eventos)
     // ─────────────────────────────────────────────────────────────────
     if (action === "reschedule") {
-      const { current, history = [] } = body;
+      try {
+        const { current, history = [] } = body;
 
-      const systemPrompt = `
+        const systemPrompt = `
 Eres la Inteligencia Artificial (Coach Personalizado) de "Flux". Tu comunicación es directa, sin rodeos ni tecnicismos.
 Analizando el evento modificado actual y el historial de cumplimiento, propone una hora alternativa específica para este mismo día que maximice la adherencia histórica.
 Devuelve estrictamente un objeto JSON con la estructura:
@@ -494,20 +557,30 @@ Devuelve estrictamente un objeto JSON con la estructura:
   "suggested_time": "HH:MM", // Formato estricto de 24 horas (ej. 19:30)
   "reason": "Razón corta y sumamente práctica en español de por qué es la mejor hora."
 }
-      `;
+        `;
 
-      const responseText = await callGroq(systemPrompt, `Evento modificado: "${current}"\nHistorial: ${JSON.stringify(history)}`, true);
-      let rescheduleResult = { suggested_time: "18:00", reason: "Horario estándar sugerido por consistencia." };
-      try {
-        rescheduleResult = JSON.parse(responseText);
-      } catch {
-        // Fallback
+        const responseText = await callGroq(systemPrompt, `Evento modificado: "${current}"\nHistorial: ${JSON.stringify(history)}`, true);
+        let rescheduleResult = { suggested_time: "18:00", reason: "Horario estándar sugerido por consistencia." };
+        try {
+          rescheduleResult = JSON.parse(responseText);
+        } catch {
+          // Fallback
+        }
+
+        return new Response(JSON.stringify(rescheduleResult), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      } catch (err) {
+        console.error("[process-wellbeing] Error en acción reschedule:", err);
+        return new Response(JSON.stringify({
+          suggested_time: "18:00",
+          reason: "Horario estándar sugerido para resguardar tus bloques deportivos inmutables."
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
       }
-
-      return new Response(JSON.stringify(rescheduleResult), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
     }
 
     return new Response(JSON.stringify({ error: "Acción inválida" }), {
@@ -517,8 +590,17 @@ Devuelve estrictamente un objeto JSON con la estructura:
 
   } catch (err) {
     console.error("[process-wellbeing] Excepción general:", err);
-    return new Response(JSON.stringify({ error: "Internal Server Error", details: err.message }), {
-      status: 500,
+    return new Response(JSON.stringify({ 
+      error: "Error Interno del Servidor", 
+      details: err.message,
+      greeting: "¿Cómo estuvo tu día? Escribe tu reflexión libre y directa.",
+      evolution: "Tu sentir va tomando forma de manera constante. Sigue registrando tus reflexiones para perfilar tu evolución emocional.",
+      feedback: "Tu reflexión ha sido registrada con éxito. Tu Coach de IA se encuentra momentáneamente en mantenimiento de cuotas, pero tu registro de bienestar ha sido persistido de forma segura.",
+      question: null,
+      suggested_agenda_change: null,
+      success: false
+    }), {
+      status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
   }

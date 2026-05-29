@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { format, parseISO } from 'date-fns';
 import { Brain, Flame, Trophy, Lock, Unlock, Sparkles, Heart } from 'lucide-react';
@@ -40,12 +40,8 @@ export function WellbeingView() {
   const [evolutionText, setEvolutionText] = useState('Escribe reflexiones para comenzar a perfilar tu evolución emocional.');
   const [loadingEvolution, setLoadingEvolution] = useState(false);
 
-  // Obtener historial de notas puras para el widget de evolución semanal
-  const notesHistory = useMemo(() => {
-    return wellbeingLogs
-      .filter(l => l.notas && l.notas.trim() !== '')
-      .map(l => l.notas);
-  }, [wellbeingLogs]);
+  // Flag de control para evitar invocaciones infinitas en bucle
+  const hasLoadedEvolution = useRef(false);
 
   // Filtrar eventos clave de hoy (hechos consumados)
   const todayEvents = useMemo(() => {
@@ -73,7 +69,8 @@ export function WellbeingView() {
           id: e.id,
           summary: e.summary,
           completed: !!eventStatus[e.id],
-          location: e.location
+          location: e.location,
+          start_time: e.start?.dateTime || e.start?.date
         }));
 
         const { data, error } = await supabase.functions.invoke('process-wellbeing', {
@@ -153,33 +150,54 @@ export function WellbeingView() {
     };
   }, [isReflectionCompletedToday]);
 
-  // [3] EFECTO: Cargar Evolución Semanal cualitativa tradicional
+  const wellbeingLogsRef = useRef(wellbeingLogs);
+  
+  // Mantener actualizado el ref con los logs de bienestar
   useEffect(() => {
-    let active = true;
-    if (notesHistory.length > 0) {
-      setLoadingEvolution(true);
+    wellbeingLogsRef.current = wellbeingLogs;
+    if (wellbeingLogs.length > 0 && !hasLoadedEvolution.current) {
+      triggerEvolutionLoad();
+    }
+  }, [wellbeingLogs]);
+
+  const triggerEvolutionLoad = () => {
+    if (hasLoadedEvolution.current) return;
+    const logs = wellbeingLogsRef.current;
+    if (logs.length === 0) return;
+    
+    hasLoadedEvolution.current = true;
+    setLoadingEvolution(true);
+
+    const history = logs
+      .filter(l => l.notas && l.notas.trim() !== '')
+      .map(l => l.notas);
+
+    if (history.length > 0) {
       import('@/lib/gemini').then(({ getEvolutionAnalysis }) => {
-        getEvolutionAnalysis({ history: notesHistory })
+        getEvolutionAnalysis({ history })
           .then(res => {
-            if (active) {
-              setEvolutionText(res.evolution || 'Sin análisis de evolución disponible en este momento.');
-            }
+            setEvolutionText(res.evolution || 'Sin análisis de evolución disponible en este momento.');
           })
           .catch(err => {
             console.error('Error cargando evolución cualitativa:', err);
-            if (active) setEvolutionText('Tu sentir va tomando forma. Sigue expresando tus reflexiones.');
+            setEvolutionText('Tu sentir va tomando forma. Sigue expresando tus reflexiones.');
           })
           .finally(() => {
-            if (active) setLoadingEvolution(false);
+            setLoadingEvolution(false);
           });
       });
     } else {
+      setLoadingEvolution(false);
       setEvolutionText('Escribe reflexiones para comenzar a perfilar tu evolución emocional.');
     }
-    return () => {
-      active = false;
-    };
-  }, [notesHistory]);
+  };
+
+  // [3] EFECTO: Cargar Evolución Semanal cualitativa EXACTAMENTE UNA VEZ (Dependencia [] controlada por useRef flag)
+  useEffect(() => {
+    if (wellbeingLogsRef.current.length > 0 && !hasLoadedEvolution.current) {
+      triggerEvolutionLoad();
+    }
+  }, []);
 
   // [4] FUNCIÓN: Guardar Reflexión Principal
   async function handleSave(e: React.FormEvent) {
@@ -196,7 +214,8 @@ export function WellbeingView() {
         id: e.id,
         summary: e.summary,
         completed: !!eventStatus[e.id],
-        location: e.location
+        location: e.location,
+        start_time: e.start?.dateTime || e.start?.date
       }));
 
       // Llamar a nuestra Edge Function de RAG
@@ -316,7 +335,7 @@ export function WellbeingView() {
   }
 
   const moods = [
-    { score: 1, emoji: '😞', label: 'Agotado', activeClass: 'border-red-500 bg-red-500/15 text-red-600 dark:text-red-400 ring-4 ring-red-500/20 shadow-md scale-[1.03]', normalClass: 'border-red-500/15 hover:border-red-500/30 text-red-600 dark:text-red-400/80 bg-red-500/5 hover:bg-red-500/10' },
+    { score: 1, emoji: '😞', label: 'Agotado', activeClass: 'border-red-500 bg-red-500/15 text-red-650 dark:text-red-400 ring-4 ring-red-500/20 shadow-md scale-[1.03]', normalClass: 'border-red-500/15 hover:border-red-500/30 text-red-600 dark:text-red-400/80 bg-red-500/5 hover:bg-red-500/10' },
     { score: 2, emoji: '😐', label: 'Normal', activeClass: 'border-zinc-500 bg-zinc-550/15 text-zinc-700 dark:text-zinc-300 ring-4 ring-zinc-500/20 shadow-md scale-[1.03]', normalClass: 'border-zinc-500/15 hover:border-zinc-500/30 text-zinc-650 dark:text-zinc-400 bg-zinc-500/5 hover:bg-zinc-550/10' },
     { score: 4, emoji: '😌', label: 'En Paz', activeClass: 'border-purple-500 bg-purple-550/15 text-purple-700 dark:text-purple-300 ring-4 ring-purple-500/20 shadow-md scale-[1.03]', normalClass: 'border-purple-500/15 hover:border-purple-500/30 text-purple-650 dark:text-purple-400 bg-purple-500/5 hover:bg-purple-550/10' },
     { score: 5, emoji: '⚡', label: 'Enérgico', activeClass: 'border-amber-500 bg-amber-550/15 text-amber-700 dark:text-amber-300 ring-4 ring-amber-500/20 shadow-md scale-[1.03]', normalClass: 'border-amber-500/15 hover:border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-500/5 hover:bg-amber-550/10' }
@@ -438,13 +457,13 @@ export function WellbeingView() {
         {/* Columna Derecha: Gamification & Feedback RAG */}
         <div className="lg:col-span-2 space-y-6">
           
-          {/* Widget de Racha Deportiva / Introspección */}
+          {/* Widget de Racha de Introspección */}
           <div className="bg-gradient-to-br from-purple-600 via-indigo-600 to-pink-500 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden flex flex-col justify-between group border border-white/10">
             <div className="absolute -top-12 -right-12 w-32 h-32 bg-white/10 rounded-full blur-2xl group-hover:scale-110 transition-transform duration-500"></div>
             <div className="absolute -bottom-8 -left-8 w-24 h-24 bg-white/5 rounded-full blur-md"></div>
 
             <div className="relative z-10 flex items-center justify-between mb-4">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider bg-white/20 backdrop-blur-md px-3.5 py-1 rounded-full border border-white/10">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider bg-white/20 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10">
                 🔥 Racha de Introspección
               </span>
               <div className="w-8 h-8 rounded-full bg-white/15 flex items-center justify-center backdrop-blur-sm">
@@ -516,7 +535,7 @@ export function WellbeingView() {
                     FeedBack del Coach de IA
                   </div>
                   <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-500 dark:text-emerald-400 border border-emerald-500/10">
-                    <Unlock className="w-4 h-4 animate-bounce" />
+                    <Unlock className="w-4 h-4" />
                   </div>
                 </div>
 
@@ -528,7 +547,7 @@ export function WellbeingView() {
                 ) : reflectionRecord ? (
                   <div className="space-y-4">
                     
-                    {/* Contenedor del Feedback Principal (máx 3 párrafos) */}
+                    {/* Contenedor del Feedback Principal */}
                     <div className="p-4 bg-white/40 dark:bg-purple-950/20 border border-purple-500/10 rounded-2xl shadow-inner text-left">
                       <p className="text-xs font-extrabold text-purple-650 dark:text-purple-350 uppercase tracking-wider mb-2">
                         🧠 Perspectiva del día:
